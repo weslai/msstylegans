@@ -9,6 +9,7 @@ import pandas as pd
 import json
 import copy
 import dnnlib
+from torchmetrics.image.fid import FrechetInceptionDistance
 
 from metrics.metric_main import is_valid_metric, _metric_dict
 ### -----------
@@ -135,3 +136,23 @@ def save_eval_report(result_dict, save_path, save_name, snapshot_pkl=None):
 def args_wrapper():
     pass
 ### ------------------------------------------- ###
+
+def calc_fid_score(
+    img_dist1,
+    img_dist2,
+    batch_size=64
+):
+    """
+    Calculate FID score for two image distributions.
+    Args:
+        img_dist1 (torch.Tensor): image distribution 1
+        img_dist2 (torch.Tensor): image distribution 2
+        batch_size (int): batch size
+    """
+    _ = torch.manual_seed(64)
+    fid = FrechetInceptionDistance(feature=2048).to(device=img_dist1.device)
+    for i in range(0, len(img_dist1), batch_size):
+        fid.update(img_dist1[i:min(i+batch_size, len(img_dist1))], real=True)
+        fid.update(img_dist2[i:min(i+batch_size, len(img_dist2))], real=False)
+    fid_score = fid.compute()
+    return fid_score
