@@ -11,12 +11,12 @@ UKB_FIELD = lambda side: {"left": "21015", "right": "21016"}[side]
 PHENO_PTH = "/dhc/projects/ukbiobank/original/phenotypes/ukb49727.csv"
 
 QCOVARIATES = {
-    "age": 21022,
-    "systolic_bp": 4080,
+    "age": 21022, ##c1
+    "systolic_bp": 4080, ##c2
     "diastolic_bp": 4079,
-    "cylindrical_power_left": 5086,
+    "cylindrical_power_left": 5086, ##c3
     "cylindrical_power_right": 5087,
-    "spherical_power_left": 5085,
+    "spherical_power_left": 5085, ##(c3)
     "spherical_power_right": 5084,
 }
 CCOVARIATES = {
@@ -34,6 +34,22 @@ CCOVARIATE_CODING = {
     "female": 0,
 }
 NROWS = None
+
+def get_split_datasources(in_file="tmp.csv", num_sources=2, outfile="tmp.csv"):
+    df = pd.read_csv(in_file, index_col=0)
+    df = df.reindex(np.random.permutation(df.index))
+    nrow = df.shape[0]
+    split = int(nrow // num_sources)
+    sources = []
+    for i in range(num_sources):
+        if i == num_sources - 1:
+            s = df[i * split :]
+        else:
+            s = df[i * split : min((i + 1) * split, nrow)]
+        s.to_csv(outfile.replace(".csv", f"_source{i}.csv"))
+        sources.append(s)
+    
+    return sources
 
 
 def load_data(seed=123):

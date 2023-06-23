@@ -1,12 +1,100 @@
 ## -------------------
 ## --- Third-Party ---
 ## -------------------
-from operator import index
 import os
-from matplotlib import use
 import seaborn as sns
 import numpy as np
 import pandas as pd
+from pathlib import Path
+
+PHENO_PTH = "/dhc/projects/ukbiobank/original/phenotypes/ukb49727.csv"
+IMG_PTH = "/dhc/projects/ukbiobank/original/imaging/brain_mri/T1_structural_brain_mri/unzipped/"
+
+QCOVARIATES = {
+    "age": 21022,
+}
+CCOVARIATES = {
+    "standard": 25000,
+    "peripheral_greymatter_norm": 25001,
+    "peripheral_greymatter": 25002,
+    "ventricular_cerebrospinal_fluid_norm": 25003, ## if we use this
+    "ventricular_cerebrospinal_fluid": 25004,
+    "grey_matter_norm": 25005,
+    "grey_matter": 25006,
+    "white_matter_norm": 25007,
+    "white_matter": 25008,
+    "brain_volume_norm": 25009,
+    "brain_volume": 25010,
+    "cortex_left": 26552, ## this one first
+    "laterals_ventricles_left": 26554,
+    "cortex_right": 26583, ## second
+    "laterals_ventricles_right": 26585,
+}
+CCOVARIATE_CODING = {
+    "standard": 0,
+    "peripheral_greymatter_norm": 1,
+    "peripheral_greymatter": 2,
+    "ventricular_cerebrospinal_fluid_norm": 3,
+    "ventricular_cerebrospinal_fluid": 4,
+    "grey_matter_norm": 5,
+    "grey_matter": 6,
+    "white_matter_norm": 7,
+    "white_matter": 8,
+    "brain_volume_norm": 9,
+    "brain_volume": 10,
+    "laterals_ventricles_left": 11,
+    "laterals_ventricles_right": 12,
+    "cortex_left": 13,
+    "cortex_right": 14,
+}
+NROWS = None
+
+def get_img_indivs(out_file="tmp.csv"):
+    pth = Path(IMG_PTH)
+    pths = list(pth.glob(f"*_20252_*_*/T1/T1toMNIlin.nii.gz"))
+    iids = [int(pth.parts[-3].split("_")[0]) for pth in pths]
+    df = pd.DataFrame({"iid": iids, "path": pths}).sort_values(by="path", axis=0)
+    # df.drop_duplicates(subset="iid", inplace=True, keep="last")
+    # df.index = df.iid
+    # df.drop(columns=["iid"], inplace=True)
+
+    qdf, cdf, cdf2 = get_volumes(iids)
+    df = df.join(qdf).join(cdf).join(cdf2)
+    df.to_csv(out_file)
+
+    return df
+
+def get_volumes(iids):
+    # quantitative:
+    sniff = pd.read_csv(PHENO_PTH, nrows=2)
+
+    qcols = ["eid"] + [
+        col for col in sniff.columns if is_in_set(col, QCOVARIATES.values())
+    ]
+    qdf = pd.read_csv(PHENO_PTH, usecols=qcols, index_col=0, nrows=NROWS)
+    I = sorted(np.intersect1d(qdf.index, iids))
+    qdf = qdf.loc[I]
+    
+    ccols = ["eid"] + [
+        col for col in sniff.columns if is_in_set_vols(col, CCOVARIATES.values())
+    ]
+    cdf = pd.read_csv(PHENO_PTH, usecols=ccols, index_col=0, nrows=NROWS)
+    I = sorted(np.intersect1d(cdf.index, iids))
+    cdf = cdf.loc[I]
+    ccols2 = ["eid"] + [
+        col for col in sniff.columns if is_in_set_vols2(col, CCOVARIATES.values())
+    ]
+    cdf2 = pd.read_csv(PHENO_PTH, usecols=ccols2, index_col=0, nrows=NROWS)
+    I = sorted(np.intersect1d(cdf2.index, iids))
+    cdf2 = cdf2.loc[I]
+    return qdf, cdf, cdf2
+
+def is_in_set(col, cols):
+    return any([col.startswith(f"{c}-0.") for c in cols])
+def is_in_set_vols(col, cols):
+    return any([col.startswith(f"{c}-2.") for c in cols])
+def is_in_set_vols2(col, cols):
+    return any([col.startswith(f"{c}-3.") for c in cols])
 
 def csv_annotation_creator(csv_file: str, id_file: str):
     eids = []
@@ -126,7 +214,11 @@ def covs_pair_plot(data_path: str,
 if __name__ == "__main__":
     csv_file = "/dhc/projects/ukbiobank/original/phenotypes/ukb49727.csv"
     path_to_data = "/dhc/projects/ukbiobank/original/imaging/brain_mri/T1_structural_brain_mri/unzipped"
-    csv_id_creator(path=path_to_data)
-    id_file = "data/ukbb/t1_brain/id_suffix_readfile.csv"
-    csv_annotation_creator(csv_file=csv_file,
-                           id_file=id_file)
+    out_file = "/dhc/groups/fglippert/Ukbiobank/imaging/brain_mri/multisources/volumes.csv"
+    # csv_id_creator(path=path_to_data)
+    # id_file = "data/ukbb/t1_brain/id_suffix_readfile.csv"
+    # csv_annotation_creator(csv_file=csv_file,
+    #                        id_file=id_file)
+    cdf = get_volumes()
+    # df = df.join(qdf).join(cdf)
+    cdf.to_csv(out_file)
