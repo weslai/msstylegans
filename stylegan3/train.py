@@ -114,25 +114,24 @@ def init_dataset_kwargs(data, name, use_labels, mode: str,
                         # without_volumes: bool =False, 
                         max_size: tuple = None):
     try:
-        ## for Oasis3
-        if name == "oasis3":
-            dataset_kwargs = dnnlib.EasyDict(
-                class_name='training.dataset.OasisMRIDataset2D_Labels', 
-                data_name="oasis3",           
-                path=data,
-                use_labels=use_labels, 
-                max_size=None, 
-                xflip=False
-            )
         ## for UKB
-        elif name == "ukb":
+        if name == "ukb":
             dataset_kwargs = dnnlib.EasyDict(
                 class_name='training.dataset.UKBiobankMRIDataset2D', 
                 data_name="ukb",
                 path=data,
                 mode=mode,
                 use_labels=use_labels,
-                # without_volumes=without_volumes,
+                max_size=max_size,
+                xflip=False
+            )
+        elif name == "retinal":
+            dataset_kwargs = dnnlib.EasyDict(
+                class_name='training.dataset.UKBiobankRetinalDataset',
+                data_name="retinal",
+                path=data,
+                mode=mode,
+                use_labels=use_labels,
                 max_size=max_size,
                 xflip=False
             )

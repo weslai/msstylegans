@@ -8,6 +8,7 @@ import pandas as pd
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestRegressor
+from sklearn.mixture import GaussianMixture
 from torch.distributions import MultivariateNormal
 import torch
 import gmr
@@ -46,7 +47,12 @@ def set_dataset(name: str, which_source=None):
         VARS = ["Age", "Sex", "CDGLOBAL"] + VOLS
         # VARS = ["Age", "Sex", "mmse"] + VOLS ## first ignore mmse for now
         ## ------------------------------------------------------
-
+    elif name == "retinal":
+        if which_source == "source1":
+            VOLS = ["systolic_bp"]
+        elif which_source == "source2":
+            VOLS = ["cylindrical_power_left"]
+        VARS = ["age"] + VOLS
     return VARS, VOLS
 
 class CausalSampling:
@@ -59,11 +65,11 @@ class CausalSampling:
         if label_path is None:
             ## use default
             if self.dataset == "ukb":
-                self.label_path = "/scratch/wei-cheng.lai/T1_3T_coronal_mni_linear_freesurfer_resolution256_source1/trainset/"
-            elif self.dataset == "oasis3":
-                self.label_path = "/scratch/wei-cheng.lai/Oasis3/trainset/"
+                raise ValueError(f"{self.dataset} must have a label_path")
             elif self.dataset == "adni":
                 self.label_path = "/scratch/wei-cheng.lai/adni/T1_3T_coronal_mni_nonlinear_4DT/trainset/"
+            elif self.dataset == "retinal":
+                raise ValueError(f"{self.dataset} must have a label_path")
             else:
                 raise ValueError(f'dataset {self.dataset} not exists')
         else:
@@ -75,7 +81,8 @@ class CausalSampling:
                 temp_path = self.label_path.split("/")[:-2]
                 self.label_path = "/" + os.path.join(*temp_path) + "/trainset/"
         
-        self.which_source = self.label_path.split("/")[-3]
+        self.which_source = self.label_path.split("/")[-3].split("_")[-1]
+        print(f"which_source: {self.which_source}")
         assert self.which_source.startswith("source")
         self.vars, self.vols = set_dataset(self.dataset, self.which_source)
         ## we only know labels from the training set

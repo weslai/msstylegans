@@ -133,10 +133,7 @@ def save_eval_report(result_dict, save_path, save_name, snapshot_pkl=None):
 
 ### ------------------------------------------- ###
 ### Argument wrapper for the evaluation script ###
-def args_wrapper():
-    pass
 ### ------------------------------------------- ###
-
 def calc_fid_score(
     img_dist1,
     img_dist2,
@@ -153,6 +150,8 @@ def calc_fid_score(
     fid = FrechetInceptionDistance(feature=2048).to(device=img_dist1.device)
     for i in range(0, len(img_dist1), batch_size):
         fid.update(img_dist1[i:min(i+batch_size, len(img_dist1))], real=True)
+        fid.update(img_dist2[i:min(i+batch_size, len(img_dist1))], real=False)
+    for i in range(len(img_dist1), len(img_dist2), batch_size):
         fid.update(img_dist2[i:min(i+batch_size, len(img_dist2))], real=False)
     fid_score = fid.compute()
     return fid_score
