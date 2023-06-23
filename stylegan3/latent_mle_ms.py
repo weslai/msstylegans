@@ -7,6 +7,7 @@ import pandas as pd
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestRegressor
+from sklearn.mixture import GaussianMixture
 from torch.distributions import MultivariateNormal
 import torch
 import gmr
@@ -45,7 +46,12 @@ def set_dataset(name: str, which_source=None):
         VARS = ["Age", "Sex", "CDGLOBAL"] + VOLS
         # VARS = ["Age", "Sex", "mmse"] + VOLS ## first ignore mmse for now
         ## ------------------------------------------------------
-
+    elif name == "retinal":
+        if which_source == "source1":
+            VOLS = ["systolic_bp"]
+        elif which_source == "source2":
+            VOLS = ["cylindrical_power_left"]
+        VARS = ["age"] + VOLS
     return VARS, VOLS
 
 class CausalSampling:
@@ -58,11 +64,11 @@ class CausalSampling:
         if label_path is None:
             ## use default
             if self.dataset == "ukb":
-                self.label_path = "/scratch/wei-cheng.lai/T1_3T_coronal_mni_linear_freesurfer_resolution256_source1/trainset/"
-            elif self.dataset == "oasis3":
-                self.label_path = "/scratch/wei-cheng.lai/Oasis3/trainset/"
+                raise ValueError(f"{self.dataset} must have a label_path")
             elif self.dataset == "adni":
                 self.label_path = "/scratch/wei-cheng.lai/adni/T1_3T_coronal_mni_nonlinear_4DT/trainset/"
+            elif self.dataset == "retinal":
+                raise ValueError(f"{self.dataset} must have a label_path")
             else:
                 raise ValueError(f'dataset {self.dataset} not exists')
         else:
@@ -82,7 +88,10 @@ class CausalSampling:
         self._get_all_fnames()
         # PIL.Image.init()
         # self._image_fnames = sorted(fname for fname in self._all_fnames if self._file_ext(fname) in [PIL.Image.EXTENSION, "gz"])
-        self._image_fnames = sorted(fname for fname in self._all_fnames if self._file_ext(fname) == ".gz")
+        if dataset == "ukb":
+            self._image_fnames = sorted(fname for fname in self._all_fnames if self._file_ext(fname) == ".gz")
+        else: ## retinal
+            self._image_fnames = sorted(fname for fname in self._all_fnames if self._file_ext(fname) == ".jpg")
         
     def _get_all_fnames(self):
         if os.path.isdir(self.label_path):
@@ -104,11 +113,7 @@ class CausalSampling:
         return self.df
         
     def get_causal_model(self):
-        if self.dataset == "oasis3":
-            n_components = 2
-            age_estimator = "normal"
-            log_volumes = False
-        elif self.dataset == "ukb":
+        if self.dataset == "ukb":
             n_components = 5
             age_estimator = "beta"
             log_volumes = True
@@ -116,6 +121,13 @@ class CausalSampling:
             n_components = 8
             age_estimator = "beta"
             log_volumes = False
+        elif self.dataset == "retinal":
+            n_components = 13
+            age_estimator = "gmm"
+            if self.which_source == "source1":
+                log_volumes = False
+            elif self.which_source == "source2":
+                log_volumes = True
 
         self.model = estimate_mle(
             df = self.get_graph(),
@@ -127,6 +139,7 @@ class CausalSampling:
             age_estimator=age_estimator,
             log_volumes=log_volumes
         )
+
         return self.model
 
     def sampling_model(self, num_samples: int):
@@ -141,7 +154,8 @@ class CausalSampling:
     def sampling_given_age(self, age, normalize: bool = False):
         if normalize:
             ages, volumes = sample_from_model_given_age(age, self.dataset, self.model)
-            ages = (ages - self.mu_std_df["mu"]["Age"]) / self.mu_std_df["mu"]["Age"]
+            ages = (ages - self.model["min_age"]) / (self.model["max_age"] - self.model["min_age"])
+            # ages = (ages - self.mu_std_df["mu"][self.vars[0]]) / self.mu_std_df["mu"][self.vars[0]]
             volumes = (volumes - self.mu_std_df["mu"][self.vols[0]]) / self.mu_std_df["std"][self.vols[0]]
             return torch.cat([ages, volumes], dim=1)
         else:
@@ -220,7 +234,7 @@ def estimate_mle(
         vol_model="lognormal" if log_volumes else "normal",
     )
     labels_vol = vols ## labels: volumes from MRI images
-    vols = np.log(df[vols].values) if log_volumes else df[vols]
+    vols = np.log(df[vols].values) if log_volumes else df[vols].values
 
     ## Gaussian dist
     age = df[vars[0]].values
@@ -239,6 +253,15 @@ def estimate_mle(
             min_age=age.min(),
             max_age=age.max(),
             age_model="beta",
+        )
+    elif age_estimator == "gmm":
+        gm = GaussianMixture(n_components=n_components)
+        gm.fit(age.reshape(-1, 1))
+        model.update(
+            gm_age = gm,
+            min_age=age.min(),
+            max_age=age.max(),
+            age_model="gmm",
         )
     ## cdr only in Oasis and ADNI
     if dataset == "oasis3" or dataset == "adni":
@@ -267,19 +290,17 @@ def estimate_mle(
             vol_means=df[labels_vol].mean().values, ## because we np.log before
             vol_std=df[labels_vol].std().values,
         )
+    elif dataset == "retinal":
+        model.update(
+            c_means=df[labels_vol].mean().values, ## because we np.log before
+            c_std=df[labels_vol].std().values,
+        )
     
     if volumes_as_gmm: ## gussian mixture model
-        if dataset == "oasis3":
-            vol_gmm, vol_indices = gmm_regression(
-                y=vols,
-                x=df[["Age", "M/F", "cdr"]],
-                n_components=n_components,
-                random_state=gmm_random_state,
-            )
-        elif dataset == "ukb":
+        if dataset == "ukb" or dataset == "retinal":
             vol_gmm, vol_indices = gmm_regression(
                 y=vols.reshape(-1, 1),
-                x=df["Age"].values.reshape(-1, 1),
+                x=df[vars[0]].values.reshape(-1, 1),
                 n_components=n_components,
                 random_state=gmm_random_state,
             )
@@ -294,11 +315,7 @@ def estimate_mle(
         model["vol_indices"] = vol_indices
 
     else: ## multivariate linear regression
-        if dataset == "oasis3":
-            vol_weights, vol_bias, vol_sigma = mv_linear_regression(
-                y=vols, x=df[["Age", "M/F", "cdr"]]
-            )
-        elif dataset == "ukb":
+        if dataset == "ukb":
             vol_weights, vol_bias, vol_sigma = mv_linear_regression(
                 y=vols, x=df[["age", "sex"]]
             )
@@ -320,6 +337,14 @@ def sample_from_model(dataset: str, model, num_samples=100):
             ),
             dtype=torch.float32,
         )
+    elif model["age_model"] == "gmm":
+        A = torch.zeros(size=(num_samples, 1), dtype=torch.float32)
+        for i in range(num_samples):
+            a = -1
+            while a < model["min_age"] or a > model["max_age"]:
+                a = torch.tensor(model["gm_age"].sample(1)[0])
+            A[i, :] = a
+                
     else:
         raise ValueError(model["age_model"])
     X = A
@@ -345,9 +370,7 @@ def sample_from_model(dataset: str, model, num_samples=100):
     #     ## temporary sol (flip)
     #     V[:, 0] = abs(V[:, 0])
 
-    if dataset == "oasis3":
-        return A, C, None, V
-    elif dataset == "ukb":
+    if dataset == "ukb" or dataset == "retinal":
         return A, V
     elif dataset == "adni":
         return A, C, None, V
@@ -380,9 +403,7 @@ def sample_from_model_given_age(age, dataset: str, model):
     if model["vol_model"] == "lognormal":
         V.exp_()
     
-    if dataset == "oasis3":
-        return age, C, V
-    elif dataset == "ukb":
+    if dataset == "ukb" or dataset == "retinal":
         return age, V.reshape(-1, 1)
     elif dataset == "adni":
         return age, C, V
@@ -422,7 +443,10 @@ def sample_from_model_given_cdr(cdr, age, sex, dataset: str, model):
 
 
 def preprocess_samples(A, V=None, model=None, dataset:str = None):
-    V = (V - model["vol_means"]) / model["vol_std"]
+    if dataset == "ukb":
+        V = (V - model["vol_means"]) / model["vol_std"]
+    elif dataset == "retinal":
+        V = (V - model["c_means"]) / model["c_std"]
     if dataset == "oasis3" or dataset == "adni":
         if dataset == "oasis3":
             A = (A - model["mu_age"]) / model["sigma_age"]
@@ -432,7 +456,7 @@ def preprocess_samples(A, V=None, model=None, dataset:str = None):
         C = torch.tensor(model["cdr_encoder"].transform(C).toarray())
         
         return torch.cat([A, C, V], 1)
-    elif dataset == "ukb":
+    elif dataset == "ukb" or dataset == "retinal":
         A = (A - model["min_age"]) / (model["max_age"] - model["min_age"])
         return torch.cat([A, V], 1)
     else:
@@ -540,6 +564,7 @@ def sample_from_gmm_custom(x, indices, gmm):
         samples.append(sample)
 
     return torch.tensor(np.array(samples), dtype=torch.float)
+
 
 
 ### --- for debugging ---

@@ -91,14 +91,14 @@ def iterate_random_labels(opts, batch_size):
                         label2 = torch.tensor(label2)
                         source2_labels = torch.concat([label2[0].reshape(-1, 1), c2, label2[1].reshape(-1, 1)], dim=1)
                         concat_labels = torch.concat([source1_labels, source2_labels], dim=0)
-                    elif dataset.data_name == "ukb":
+                    elif dataset.data_name == "ukb" or dataset.data_name == "retinal":
                         ## estimation ventricle volumes
-                        c1 = label1[0] * dataset1.model["age_std"] + dataset1.model["age_mu"]
+                        c1 = label1[0] * (dataset1.model["age_max"] - dataset1.model["age_min"]) + dataset1.model["age_min"]
                         label_w_c3 = opts.sampler2.sampling_given_age(torch.tensor(c1).reshape(-1, 1), normalize=True)
                         source1_labels = torch.concat([torch.tensor(label1).reshape(1, -1), label_w_c3[0, -1].reshape(-1, 1)], 
                                                       dim=1)
                         ## estimate brain volumes
-                        c1 = label2[0] * dataset.model["age_std"] + dataset.model["age_mu"]
+                        c1 = label2[0] * (dataset.model["age_max"] - dataset.model["age_min"]) + dataset.model["age_min"]
                         label_w_c2 = opts.sampler1.sampling_given_age(torch.tensor(c1).reshape(-1, 1), normalize=True)
                         label2 = torch.tensor(label2)
                         source2_labels = torch.concat(

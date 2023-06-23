@@ -332,6 +332,97 @@ class OasisMRIDataset2D_Labels(ImageFolderDataset):
         return new_labels ## return an array, each element is a dict {"mmse": ..., }
 #----------------------------------------------------------------------------
 ## images and labels (UKB with DAG graph (causal))
+class UKBiobankRetinalDataset(ImageFolderDataset):
+    def __init__(
+        self, 
+        path, 
+        resolution=None,
+        mode: str = "train", ## ["train", "val", "test"]
+        data_name: str = "retinal",
+        **super_kwargs
+    ):
+        self.mode = mode
+        self.data_name = data_name
+        ## which source
+        self.which_source = [path.split("/")[-1], path.split("/")[-2]]
+        for source in self.which_source:
+            s = source.split("_")[-1]
+            if s.startswith("source"):
+                self.which_source = s
+                break
+
+        super().__init__(data_name, self.mode, path, resolution, **super_kwargs)
+    
+    def _get_mu_std(self, labels=None, which_source=None):
+        model = dict()
+        model.update(
+            age_mu = np.mean(labels[:, 0]),
+            age_std = np.std(labels[:, 0]),
+            age_min = np.min(labels[:, 0]),
+            age_max = np.max(labels[:, 0])
+        )
+        c_additional_mu = np.mean(labels[:, 1])
+        c_additional_std = np.std(labels[:, 1])
+        if which_source == "source1":
+            model.update(
+                systolic_bp_mu = c_additional_mu,
+                systolic_bp_std = c_additional_std
+            )
+        elif which_source == "source2":
+            model.update(
+                cylindrical_power_left_mu = c_additional_mu,
+                cylindrical_power_left_std = c_additional_std
+            )
+        return model
+
+    def _normalise_labels(self, age, systolic_bp=None, cylindrical_power_left=None):
+        ## zero mean normalisation
+        age = (age - self.model["age_min"]) / (self.model["age_max"] - self.model["age_min"])
+        if self.which_source == "source1":
+            systolic_bp = (systolic_bp - self.model["systolic_bp_mu"]) / self.model["systolic_bp_std"]
+            samples = np.concatenate([age, systolic_bp], 1)
+        elif self.which_source == "source2":
+            cylindrical_power_left = (cylindrical_power_left - self.model["cylindrical_power_left_mu"]) / self.model["cylindrical_power_left_std"]
+            samples = np.concatenate([age, cylindrical_power_left], 1)
+        return samples
+
+    def _load_raw_labels(self):
+        fname = "dataset.json"
+        if fname not in self._all_fnames:
+            return None
+        with self._open_file(fname) as f:
+            labels = json.load(f)["labels"]
+        if labels is None:
+            return None
+        labels = dict(labels)
+        labels = [labels[fname.replace("\\", "/")] for fname in self._image_fnames] ## a dict 
+
+        if self.which_source == "source1":
+            self.vars = ["age", "systolic_bp"]
+        elif self.which_source == "source2":
+            self.vars = ["age", "cylindrical_power_left"]
+        else:
+            raise ValueError(f"No such source {self.which_source}")
+
+        new_labels = np.zeros(shape=(len(labels), 2), dtype=np.float32)
+        for num, l in enumerate(labels):
+            i = list(l[self.vars[0]].items())[0][0]
+            temp = [l[var][str(i)] for var in self.vars]
+            new_labels[num, :] = temp
+        self.model = self._get_mu_std(new_labels, self.which_source)
+        if self.which_source == "source1":
+            new_labels = self._normalise_labels(
+                age=new_labels[:, 0].reshape(-1, 1),
+                systolic_bp=new_labels[:, 1].reshape(-1, 1)
+            )
+        elif self.which_source == "source2":
+            new_labels = self._normalise_labels(
+                age=new_labels[:, 0].reshape(-1, 1),
+                cylindrical_power_left=new_labels[:, 1].reshape(-1, 1)
+            )
+        return new_labels
+#----------------------------------------------------------------------------
+## images and labels (UKB with DAG graph (causal))
 class UKBiobankMRIDataset2D(ImageFolderDataset):
     def __init__(
         self, 
@@ -357,7 +448,9 @@ class UKBiobankMRIDataset2D(ImageFolderDataset):
         model = dict()
         model.update(
             age_mu = np.mean(labels[:, 0]),
-            age_std = np.std(labels[:, 0])
+            age_std = np.std(labels[:, 0]),
+            age_min = np.min(labels[:, 0]),
+            age_max = np.max(labels[:, 0])
         )
         c_additional_mu = np.mean(labels[:, 1])
         c_additional_std = np.std(labels[:, 1])
@@ -375,7 +468,7 @@ class UKBiobankMRIDataset2D(ImageFolderDataset):
 
     def _normalise_labels(self, age, brain=None, ventricle=None):
         ## zero mean normalisation
-        age = (age - self.model["age_mu"]) / self.model["age_std"]
+        age = (age - self.model["age_min"]) / (self.model["age_max"] - self.model["age_min"])
         if self.which_source == "source1":
             brain = (brain - self.model["brain_mu"]) / self.model["brain_std"]
             samples = np.concatenate([age, brain], 1)

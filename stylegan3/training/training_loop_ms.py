@@ -179,7 +179,7 @@ def training_loop(
         latent_sampler2 = MorphoSampler(dataset_name=training_set1.data_name,
                                         label_path=training_set1._path,
                                         use_groud_truth=use_ground_truth)
-    elif training_set.data_name == "ukb":
+    else:
         latent_sampler1 = CausalSampling(dataset=training_set.data_name,
                                          label_path=training_set._path)
         df1 = latent_sampler1.get_graph()
@@ -301,8 +301,8 @@ def training_loop(
             thickness = labels[:, 0] * training_set1.model["thickness_std"] + training_set1.model["thickness_mu"]
             _, slant = latent_sampler2.sampling_slant(thickness, normalize=True, model_=training_set1.model)
             labels = np.concatenate([labels, slant], axis=1)
-        elif training_set.data_name == "ukb":
-            age = labels[:, 0] * training_set1.model["age_std"] + training_set1.model["age_mu"]
+        elif training_set.data_name == "ukb" or training_set.data_name == "retinal":
+            age = labels[:, 0] * (training_set1.model["age_max"] - training_set1.model["age_min"])  + training_set1.model["age_min"]
             labels_w_ventr = latent_sampler2.sampling_given_age(age, normalize=True).cpu().detach().numpy()
             labels = np.concatenate([labels, labels_w_ventr[:, -1].reshape(-1, 1)], axis=1)
         else:
@@ -363,13 +363,14 @@ def training_loop(
                 _, intensity = latent_sampler1.sampling_intensity(thickness.reshape(-1, 1), normalize=True, model_=training_set.model)
                 phase_real_c2 = torch.cat([phase_real_c2[:, 0].reshape(-1, 1), intensity, phase_real_c2[:, 1].reshape(-1, 1)], 
                                     dim=1).to(device).split(batch_gpu)
-            elif training_set.data_name == "ukb": ## estimate brain and ventricle volumes
+            elif training_set.data_name == "ukb" or training_set.data_name == "retinal" : 
+                ## estimate c2, c3
                 ## estimate ventricle volumes for source 1
-                age = phase_real_c1[:, 0] * torch.tensor(training_set1.model["age_std"]) + torch.tensor(training_set1.model["age_mu"])
+                age = phase_real_c1[:, 0] * torch.tensor(training_set1.model["age_max"] - training_set1.model["age_min"]) + torch.tensor(training_set1.model["age_min"])
                 gen_c1_w_ventr = latent_sampler2.sampling_given_age(age, normalize=True)
                 phase_real_c1 = torch.cat([phase_real_c1, gen_c1_w_ventr[:, -1].reshape(-1, 1)], dim=1).to(device).split(batch_gpu)
                 ## estimate brain volumes for source 2
-                age = phase_real_c2[:, 0] * torch.tensor(training_set.model["age_std"]) + torch.tensor(training_set.model["age_mu"])
+                age = phase_real_c2[:, 0] * torch.tensor(training_set.model["age_max"] - training_set.model["age_min"]) + torch.tensor(training_set.model["age_min"])
                 gen_c2_w_brain = latent_sampler1.sampling_given_age(age, normalize=True)
                 phase_real_c2 = torch.cat([phase_real_c2[:, 0].reshape(-1, 1), gen_c2_w_brain[:, -1].reshape(-1, 1), 
                                         phase_real_c2[:, -1].reshape(-1, 1)], dim=1).to(device).split(batch_gpu)
@@ -396,13 +397,14 @@ def training_loop(
                 thickness = all_gen_c2[:, 0] * torch.tensor(training_set.model["thickness_std"]) + torch.tensor(training_set.model["thickness_mu"])
                 _, intensity = latent_sampler1.sampling_intensity(thickness.reshape(-1, 1), normalize=True, model_=training_set.model)
                 all_gen_c2 = torch.cat([all_gen_c2[:, 0].reshape(-1, 1), intensity, all_gen_c2[:, 1].reshape(-1, 1)], dim=1).pin_memory().to(device)
-            elif training_set.data_name == "ukb": ## estimate brain and ventricle volumes
+            elif training_set.data_name == "ukb" or training_set.data_name == "retinal": 
+                ## estimate (c2, c3)
                 ## estimate ventricle volumes for source 1
-                age = all_gen_c1[:, 0] * torch.tensor(training_set1.model["age_std"]) + torch.tensor(training_set1.model["age_mu"])
+                age = all_gen_c1[:, 0] * torch.tensor(training_set1.model["age_max"] - training_set1.model["age_min"]) + torch.tensor(training_set1.model["age_min"])
                 gen_c1_w_ventr = latent_sampler2.sampling_given_age(age, normalize=True)
                 all_gen_c1 = torch.cat([all_gen_c1, gen_c1_w_ventr[:, -1].reshape(-1, 1)], dim=1).pin_memory().to(device)
                 ## estimate brain volumes for source 2
-                age = all_gen_c2[:, 0] * torch.tensor(training_set.model["age_std"]) + torch.tensor(training_set.model["age_mu"])
+                age = all_gen_c2[:, 0] * torch.tensor(training_set.model["age_max"] - training_set.model["age_min"]) + torch.tensor(training_set.model["age_min"])
                 gen_c2_w_brain = latent_sampler1.sampling_given_age(age, normalize=True)
                 all_gen_c2 = torch.cat([all_gen_c2[:, 0].reshape(-1, 1), gen_c2_w_brain[:, -1].reshape(-1, 1), 
                                         all_gen_c2[:, -1].reshape(-1, 1)], dim=1).pin_memory().to(device)

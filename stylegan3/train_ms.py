@@ -113,18 +113,8 @@ def launch_training(c, desc, outdir, dry_run):
 def init_dataset_kwargs(data, name, use_labels, mode: str,
                         max_size: tuple = None):
     try:
-        ## for Oasis3
-        if name == "oasis3":
-            dataset_kwargs = dnnlib.EasyDict(
-                class_name='training.dataset.OasisMRIDataset2D_Labels', 
-                data_name="oasis3",           
-                path=data,
-                use_labels=use_labels, 
-                max_size=None, 
-                xflip=False
-            )
         ## for UKB
-        elif name == "ukb":
+        if name == "ukb":
             dataset_kwargs = dnnlib.EasyDict(
                 class_name='training.dataset.UKBiobankMRIDataset2D', 
                 data_name="ukb",
@@ -134,11 +124,10 @@ def init_dataset_kwargs(data, name, use_labels, mode: str,
                 max_size=max_size,
                 xflip=False
             )
-        ## for Adni
-        elif name == "adni":
+        elif name == "retinal":
             dataset_kwargs = dnnlib.EasyDict(
-                class_name='training.dataset.AdniMRIDataset2D', 
-                data_name="adni",           
+                class_name='training.dataset.UKBiobankRetinalDataset',
+                data_name="retinal",
                 path=data,
                 mode=mode,
                 use_labels=use_labels,
@@ -206,7 +195,6 @@ def parse_comma_separated_list(s):
 
 # Optional features.
 @click.option('--cond',         help='Train conditional model', metavar='BOOL',                 type=bool, default=True, show_default=True)
-@click.option('--without_volumes', help='Train conditional model without Volumes', metavar='BOOL', type=bool, default=False, show_default=True)
 @click.option('--mirror',       help='Enable dataset x-flips', metavar='BOOL',                  type=bool, default=False, show_default=True)
 @click.option('--aug',          help='Augmentation mode',                                       type=click.Choice(['noaug', 'ada', 'fixed']), default='noaug', show_default=True)
 @click.option('--resume',       help='Resume from given network pickle', metavar='[PATH|URL]',  type=str)
@@ -290,16 +278,19 @@ def main(**kwargs):
         elif opts.data_name == "ukb":
             max_size1 = None
     ## first dataset
-    c.training_set_kwargs,dataset_name1 = init_dataset_kwargs(data=opts.data1, name=opts.data_name1, use_labels=opts.cond, 
-                                                              mode="train", max_size=max_size)
-    c.validation_set_kwargs, val_dataset_name1 = init_dataset_kwargs(data=opts.data1, name=opts.data_name1, use_labels=opts.cond, 
-                                                                    mode="val", max_size=None)
-    
+    c.training_set_kwargs,dataset_name1 = init_dataset_kwargs(data=opts.data1, name=opts.data_name1, 
+                                                              use_labels=opts.cond, mode="train", 
+                                                              max_size=max_size)
+    c.validation_set_kwargs, val_dataset_name1 = init_dataset_kwargs(data=opts.data1, name=opts.data_name1, 
+                                                                     use_labels=opts.cond, mode="val", 
+                                                                     max_size=None)
     ## second dataset
-    c.training_set_kwargs1, dataset_name2 = init_dataset_kwargs(data=opts.data2, name=opts.data_name2, use_labels=opts.cond, 
-                                                               mode="train", max_size=max_size)
-    c.validation_set_kwargs1, val_dataset_name2 = init_dataset_kwargs(data=opts.data2, name=opts.data_name2, use_labels=opts.cond, 
-                                                                     mode="val", max_size=None)
+    c.training_set_kwargs1, dataset_name2 = init_dataset_kwargs(data=opts.data2, name=opts.data_name2, 
+                                                                use_labels=opts.cond, mode="train", 
+                                                                max_size=max_size)
+    c.validation_set_kwargs1, val_dataset_name2 = init_dataset_kwargs(data=opts.data2, name=opts.data_name2, 
+                                                                      use_labels=opts.cond, mode="val", 
+                                                                      max_size=None)
     c.use_ground_truth = opts.use_ground_truth
     assert val_dataset_name1 == dataset_name1
     assert val_dataset_name2 == dataset_name2
