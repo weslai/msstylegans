@@ -55,8 +55,8 @@ def get_img_indivs(out_file="tmp.csv"):
     iids = [int(pth.parts[-3].split("_")[0]) for pth in pths]
     df = pd.DataFrame({"iid": iids, "path": pths}).sort_values(by="path", axis=0)
     # df.drop_duplicates(subset="iid", inplace=True, keep="last")
-    # df.index = df.iid
-    # df.drop(columns=["iid"], inplace=True)
+    df.index = df.iid
+    df.drop(columns=["iid"], inplace=True)
 
     qdf, cdf, cdf2 = get_volumes(iids)
     df = df.join(qdf).join(cdf).join(cdf2)
@@ -95,6 +95,27 @@ def is_in_set_vols(col, cols):
     return any([col.startswith(f"{c}-2.") for c in cols])
 def is_in_set_vols2(col, cols):
     return any([col.startswith(f"{c}-3.") for c in cols])
+
+
+def csv_extract_columns(csv_file: str, columns: list, outfile: str):
+    df = pd.read_csv(csv_file)
+    all_col = []
+    for index, row in df.iterrows():
+        suffix = row.loc["path"].split("/")[-3].split("_")[-2]
+        for col in columns:
+            if col == 21022:
+                age = row.loc[str(col) + "-0.0"]
+            else:
+                temp = row.loc[str(col) + "-" + suffix + ".0"]
+                if col == 25003:
+                    ventricle = temp
+                elif col == 26552:
+                    cortex_left = temp
+        col_list = [row.loc["path"], age, ventricle, cortex_left]
+        all_col.append(col_list)
+    df = pd.DataFrame(all_col, columns=["path", "age", "ventricle", "cortex_left"])
+    df.to_csv(outfile)
+    return df
 
 def csv_annotation_creator(csv_file: str, id_file: str):
     eids = []
