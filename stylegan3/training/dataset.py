@@ -456,8 +456,8 @@ class UKBiobankMRIDataset2D(ImageFolderDataset):
         c_additional_std = np.std(labels[:, 1])
         if which_source == "source1":
             model.update(
-                brain_mu = c_additional_mu,
-                brain_std = c_additional_std
+                cortex_left_mu = c_additional_mu,
+                cortex_left_std = c_additional_std
             )
         elif which_source == "source2":
             model.update(
@@ -466,12 +466,12 @@ class UKBiobankMRIDataset2D(ImageFolderDataset):
             )
         return model
 
-    def _normalise_labels(self, age, brain=None, ventricle=None):
+    def _normalise_labels(self, age, cortex_left=None, ventricle=None):
         ## zero mean normalisation
         age = (age - self.model["age_min"]) / (self.model["age_max"] - self.model["age_min"])
         if self.which_source == "source1":
-            brain = (brain - self.model["brain_mu"]) / self.model["brain_std"]
-            samples = np.concatenate([age, brain], 1)
+            cortex_left = (cortex_left - self.model["cortex_left_mu"]) / self.model["cortex_left_std"]
+            samples = np.concatenate([age, cortex_left], 1)
         elif self.which_source == "source2":
             ventricle = (ventricle - self.model["ventricle_mu"]) / self.model["ventricle_std"]
             samples = np.concatenate([age, ventricle], 1)
@@ -489,9 +489,9 @@ class UKBiobankMRIDataset2D(ImageFolderDataset):
         labels = [labels[fname.replace("\\", "/")] for fname in self._image_fnames] ## a dict 
 
         if self.which_source == "source1":
-            self.vars = ["Age", "brain"]
+            self.vars = ["age", "cortex_left"]
         elif self.which_source == "source2":
-            self.vars = ["Age", "ventricle"]
+            self.vars = ["age", "ventricle"]
         else:
             raise ValueError(f"No such source {self.which_source}")
 
@@ -504,7 +504,7 @@ class UKBiobankMRIDataset2D(ImageFolderDataset):
         if self.which_source == "source1":
             new_labels = self._normalise_labels(
                 age=new_labels[:, 0].reshape(-1, 1),
-                brain=new_labels[:, 1].reshape(-1, 1)
+                cortex_left=new_labels[:, 1].reshape(-1, 1)
             )
         elif self.which_source == "source2":
             new_labels = self._normalise_labels(

@@ -337,6 +337,7 @@ def open_oasis3(path: str, max_images: Optional[int],
     return max_idx, iterate_images()
 
 #----------------------------------------------------------------------------
+## UKB Brain MRI T1
 def open_ukb(
     annotation_path: str,
     max_images: Optional[int],
@@ -359,7 +360,7 @@ def open_ukb(
     df = pd.read_csv(annotation_path)
     df_ext = df[covs].dropna()
     ## separate train/val/test sets
-    trainset, testset = train_test_split(df_ext, test_size=0.15, random_state=42, shuffle=True)
+    trainset, testset = train_test_split(df_ext, test_size=0.35, random_state=42, shuffle=True)
     trainset, valset = train_test_split(trainset, test_size=0.1, random_state=42, shuffle=True)
     if which_dataset == "train":
         dataset = trainset
@@ -369,7 +370,7 @@ def open_ukb(
         dataset = testset
 
     ## trainset/testset
-    input_imgs = list(dataset["filepath_MNIlin"])
+    input_imgs = list(dataset["path"])
     max_idx = maybe_min(len(input_imgs), max_images)
 
     def iterate_images():
@@ -391,9 +392,53 @@ def open_ukb(
                 # img = (255 * img).round().astype(np.uint8)
             items = dict(
                 (key, value)
-                    for key, value in dataset.loc[dataset["filepath_MNIlin"] == fname][covs[1:]].to_dict().items()
+                    for key, value in dataset.loc[dataset["path"] == fname][covs[1:]].to_dict().items()
             )
             yield dict(img=newimg, label=items, org_img=img)
+            if idx >= max_idx - 1:
+                break
+    return max_idx, iterate_images()
+#----------------------------------------------------------------------------
+## UKB Retinal Data
+def open_ukb_retinal(
+    annotation_path: str,
+    max_images: Optional[int],
+    which_dataset: str,
+    normalize_img: bool = True,
+    covs: list = [
+        "path", 
+        "age",  
+        "systolic_bp",
+        "cylindrical_power_left"
+    ]
+):
+    assert which_dataset in ['train', 'val', 'test']
+    ## load data 
+    df = pd.read_csv(annotation_path)
+    df_ext = df[covs].dropna()
+    ## separate train/val/test sets
+    trainset, testset = train_test_split(df_ext, test_size=0.3, random_state=42, shuffle=True)
+    trainset, valset = train_test_split(trainset, test_size=0.1, random_state=42, shuffle=True)
+    if which_dataset == "train":
+        dataset = trainset
+    elif which_dataset == "val":
+        dataset = valset
+    elif which_dataset == "test":
+        dataset = testset
+
+    ## trainset/testset
+    input_imgs = list(dataset["path"])
+    max_idx = maybe_min(len(input_imgs), max_images)
+
+    def iterate_images():
+        for idx, fname in enumerate(input_imgs):
+            ## load image
+            img = np.array(PIL.Image.open(fname))
+            items = dict(
+                (key, value)
+                    for key, value in dataset.loc[dataset["path"] == fname][covs[1:]].to_dict().items()
+            )
+            yield dict(img=img, label=items)
             if idx >= max_idx - 1:
                 break
     return max_idx, iterate_images()
@@ -593,7 +638,9 @@ def make_transform(
 
 #----------------------------------------------------------------------------
 
-def open_dataset(source, *, dataset_name: str = None, which_dataset: str = None, max_images: Optional[int]):
+def open_dataset(source, *, dataset_name: str = None, 
+                 annotation_path: str = None,
+                 which_dataset: str = None, max_images: Optional[int]):
     if os.path.isdir(source):
         if source.rstrip('/').endswith('_lmdb'):
             return open_lmdb(source, max_images=max_images)
@@ -601,27 +648,31 @@ def open_dataset(source, *, dataset_name: str = None, which_dataset: str = None,
         elif source.rstrip('/').endswith('Oasis3'):
             return open_oasis3(path=source, max_images=max_images)
         ## ukbiobank
+        ## brain-mri
         elif source.rstrip('/').endswith("unzipped"):
             return open_ukb(
                 # annotation_path="/dhc/groups/fglippert/Ukbiobank/imaging/brain_mri/ukb_annotation.csv",
-                annotation_path="/dhc/groups/fglippert/Ukbiobank/imaging/brain_mri/multisources/ukb_linear_freesurfer_second_annotation.csv",
+                annotation_path=annotation_path,
                 max_images=max_images,
                 which_dataset=which_dataset,
-                # covs=[
-                #     "filepath_MNIlin",
-                #     "Age",
-                #     "Sex",
-                #     "left_lateral_ventricle",
-                #     "right_lateral_ventricle",
-                #     "left_cerebral_cortex",
-                #     "right_cerebral_cortex", 
-                #     "intracranial"
-                # ]
                 covs=[
-                    "filepath_MNIlin", 
-                    "Age",  
+                    "path", 
+                    "age",  
                     "ventricle",
-                    "brain"
+                    "cortex_left" ## cortex left
+                ]
+            )
+        ## retinal-fundus
+        elif source.rstrip('/').endswith("retinal_fundus"):
+            return open_ukb_retinal(
+                annotation_path="/dhc/groups/fglippert/Ukbiobank/imaging/retinal_fundus/multisources/phenotype_source1.csv",
+                max_images=max_images,
+                which_dataset=which_dataset,
+                covs=[
+                    "path", 
+                    "age",  
+                    "systolic_bp",
+                    "cylindrical_power_left"
                 ]
             )
         ## adni
@@ -700,6 +751,7 @@ def open_dest(dest: str) -> Tuple[str, Callable[[str, Union[bytes, str]], None],
 @click.option('--source', help='Directory or archive name for input dataset', required=True, metavar='PATH')
 @click.option('--dest', help='Output directory or archive name for output dataset', required=True, metavar='PATH')
 @click.option('--dataset_name', help='Name of the dataset', required=True, default='adni')
+@click.option('--annotation_path', help='Path to the annotation file', required=True, default=None)
 @click.option('--max-images', help='Output only up to `max-images` images', type=int, default=None)
 @click.option('--which_dataset', help='create data subset', required=True, default="train", type=click.Choice(['train', 'test', 'val']))
 # @click.option('--transform', help='Input crop/resize mode', type=click.Choice(['center-crop', 'center-crop-wide']))
@@ -710,6 +762,7 @@ def convert_dataset(
     source: str,
     dest: str,
     dataset_name: str,
+    annotation_path: str,
     max_images: Optional[int],
     which_dataset: str,
     transform: Optional[str],
@@ -780,6 +833,7 @@ def convert_dataset(
         ctx.fail('--dest output filename or directory must not be an empty string')
     ## for Adni and UKB which open_dataset will return lists (train and testset)
     num_files, input_iter = open_dataset(source, dataset_name=dataset_name, 
+        annotation_path=annotation_path,
         max_images=max_images, which_dataset=which_dataset
     )
     os.makedirs(dest, exist_ok=True)
@@ -804,6 +858,8 @@ def convert_dataset(
         idx_str = f'{idx:08d}'
         if dataset_name in ["adni", "ukb"]:
             archive_fname = f'{idx_str[:5]}/img{idx_str}.nii.gz'
+        elif dataset_name == "retinal":
+            archive_fname = f'{idx_str[:5]}/img{idx_str}.jpg'
         else:
             archive_fname = f'{idx_str[:5]}/img{idx_str}.png'
 
@@ -845,7 +901,10 @@ def convert_dataset(
         else:
             img = PIL.Image.fromarray(img, { 1: 'L', 3: 'RGB' }[channels])
             image_bits = io.BytesIO()
-            img.save(image_bits, format='png', compress_level=0, optimize=False)
+            if dataset_name == "retinal":
+                img.save(image_bits, format='jpeg', compress_level=0, optimize=False)
+            else:
+                img.save(image_bits, format='png', compress_level=0, optimize=False)
             save_bytes(os.path.join(archive_root_dir, archive_fname), image_bits.getbuffer())
         labels.append([archive_fname, image['label']] if image['label'] is not None else None)
 
