@@ -30,10 +30,11 @@ def set_dataset(name: str, which_source=None):
     elif name == "ukb":
         ## VARS are for UKB
         if which_source == "source1":
-            VOLS = ["brain"]
+            VOLS = ["cortex_left"]
+            # VOLS = ["brain"]
         elif which_source == "source2":
             VOLS = ["ventricle"]
-        VARS = ["Age"] + VOLS
+        VARS = ["age"] + VOLS
         ## ------------------------------------------------------
     elif name == "adni":
         # VOLS = ["left_lateral_ventricle", "right_lateral_ventricle",
@@ -114,8 +115,8 @@ class CausalSampling:
         
     def get_causal_model(self):
         if self.dataset == "ukb":
-            n_components = 5
-            age_estimator = "beta"
+            n_components = 10
+            age_estimator = "gmm"
             log_volumes = True
         elif self.dataset == "adni":
             n_components = 8
