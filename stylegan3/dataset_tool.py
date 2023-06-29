@@ -218,7 +218,9 @@ def open_mnist(
         covs = ["thickness", "slant", "label"]
     elif dataset_name == 'mnist-thickness':
         covs = ["thickness", "label"]
-    if dataset_name in ["mnist-thickness-intensity", "mnist-thickness-slant", "mnist-thickness"]:
+    elif dataset_name == 'mnist-thickness-intensity-slant':
+        covs = ["thickness", "intensity", "slant", "label"]
+    if dataset_name in ["mnist-thickness-intensity", "mnist-thickness-slant", "mnist-thickness", "mnist-thickness-intensity-slant"]:
         morpho_csv = images_gz.replace('-images-idx3-ubyte.gz', '-morpho.csv')
         morpho_labels = pd.read_csv(morpho_csv)
         data = []
@@ -230,12 +232,14 @@ def open_mnist(
                 cov = row["slant"]
             elif dataset_name == "mnist-thickness":
                 cov = None
-            data += [[thickness, cov, int(labels[idx])]] if cov is not None else [[thickness, int(labels[idx])]]
+            elif dataset_name == "mnist-thickness-intensity-slant":
+                cov = (row["intensity"], row["slant"])
+            data += [[thickness, *cov, int(labels[idx])]] if cov is not None else [[thickness, int(labels[idx])]]
         df = pd.DataFrame(data, columns=covs)
     max_idx = maybe_min(len(images), max_images)
 
     def iterate_images(imgs, labels = None):
-        if dataset_name in ["mnist-thickness-intensity", "mnist-thickness-slant", "mnist-thickness"]:
+        if dataset_name in ["mnist-thickness-intensity", "mnist-thickness-slant", "mnist-thickness", "mnist-thickness-intensity-slant"]:
             if which_dataset in ['train', 'val']:
                 ## images and labels
                 images_train, images_val, df_train, df_val = train_test_split(imgs, labels, 
@@ -265,6 +269,70 @@ def open_mnist(
                 if idx >= max_idx-1:
                     break
     return max_idx, iterate_images(images, df)
+
+#----------------------------------------------------------------------------
+def open_mnist_total(
+    images_gz: str, 
+    *,
+    dataset_name: str = None,
+    max_images: Optional[int],
+    which_dataset: str = 'train'
+):
+    labels_gz = images_gz.replace('-images-idx3-ubyte.gz', '-labels-idx1-ubyte.gz')
+    assert labels_gz != images_gz
+    images = []
+    labels = []
+
+    with gzip.open(images_gz, 'rb') as f:
+        images = np.frombuffer(f.read(), np.uint8, offset=16)
+    with gzip.open(labels_gz, 'rb') as f:
+        labels = np.frombuffer(f.read(), np.uint8, offset=8)
+    images = images.reshape(-1, 28, 28)
+    images = np.pad(images, [(0,0), (2,2), (2,2)], 'constant', constant_values=0)
+    if which_dataset == 'train':
+        assert images.shape == (60000, 32, 32) and images.dtype == np.uint8
+        assert labels.shape == (60000,) and labels.dtype == np.uint8
+    elif which_dataset == 'test':
+        assert images.shape == (10000, 32, 32) and images.dtype == np.uint8
+        assert labels.shape == (10000,) and labels.dtype == np.uint8
+    assert np.min(images) == 0 and np.max(images) == 255
+    assert np.min(labels) == 0 and np.max(labels) == 9
+    if dataset_name == 'mnist-thickness-intensity':
+        covs = ["thickness", "intensity", "label"]
+    elif dataset_name == 'mnist-thickness-slant':
+        covs = ["thickness", "slant", "label"]
+    elif dataset_name == 'mnist-thickness':
+        covs = ["thickness", "label"]
+    elif dataset_name == 'mnist-thickness-intensity-slant':
+        covs = ["thickness", "intensity", "slant", "label"]
+    if dataset_name in ["mnist-thickness-intensity", "mnist-thickness-slant", "mnist-thickness", "mnist-thickness-intensity-slant"]:
+        morpho_csv = images_gz.replace('-images-idx3-ubyte.gz', '-morpho.csv')
+        morpho_labels = pd.read_csv(morpho_csv)
+        data = []
+        for idx, row in morpho_labels.iterrows():
+            thickness = row["thickness"]
+            if dataset_name == "mnist-thickness-intensity":
+                cov = row["intensity"]
+            elif dataset_name == "mnist-thickness-slant":
+                cov = row["slant"]
+            elif dataset_name == "mnist-thickness":
+                cov = None
+            elif dataset_name == "mnist-thickness-intensity-slant":
+                cov = (row["intensity"], row["slant"])
+            data += [[thickness, *cov, int(labels[idx])]] if cov is not None else [[thickness, int(labels[idx])]]
+        df = pd.DataFrame(data, columns=covs)
+    max_idx = maybe_min(len(images), max_images)
+
+    def iterate_images():
+        for idx, img in enumerate(images):
+            items = dict(
+                (key, value)
+                    for key, value in df.iloc[idx][covs].to_dict().items()
+            )
+            yield dict(img=img, label=items)
+            if idx >= max_idx - 1:
+                break
+    return max_idx, iterate_images()
 
 #----------------------------------------------------------------------------
 
@@ -702,9 +770,9 @@ def open_dataset(source, *, dataset_name: str = None,
         if os.path.basename(source) == 'cifar-10-python.tar.gz':
             return open_cifar10(source, max_images=max_images)
         elif os.path.basename(source) == 'train-images-idx3-ubyte.gz':
-            return open_mnist(source, dataset_name=dataset_name, max_images=max_images, which_dataset=which_dataset)
+            return open_mnist_total(source, dataset_name=dataset_name, max_images=max_images, which_dataset=which_dataset)
         elif os.path.basename(source) == 't10k-images-idx3-ubyte.gz':
-            return open_mnist(source, dataset_name=dataset_name, max_images=max_images, which_dataset=which_dataset)
+            return open_mnist_total(source, dataset_name=dataset_name, max_images=max_images, which_dataset=which_dataset)
         elif file_ext(source) == 'zip':
             return open_image_zip(source, max_images=max_images)
         else:
