@@ -589,6 +589,14 @@ class MorphoMNISTDataset_causal(ImageFolderDataset):
         self.mode = mode
         self.include_numbers = include_numbers
         self.data_name = data_name
+        ## which source 
+        self.which_source = [path.split("/")[-1], path.split("/")[-2]]
+        for source in self.which_source:
+            s = source.split("_")[-1]
+            if s.startswith("source"):
+                self.which_source = s
+                break
+
         super().__init__(data_name, self.mode, path, resolution, **super_kwargs)
 
     def _get_mu_std(self, labels=None, data_name=None):
@@ -597,12 +605,12 @@ class MorphoMNISTDataset_causal(ImageFolderDataset):
             thickness_mu = np.mean(labels[:, 0]),
             thickness_std = np.std(labels[:, 0])
         )
-        if data_name == "mnist-thickness-intensity":
+        if data_name == "mnist-thickness-intensity" or (data_name == "mnist-thickness-intensity-slant" and self.which_source == "source1"):
             model.update(
                 intensity_mu = np.mean(labels[:, 1]),
                 intensity_std = np.std(labels[:, 1])
             )
-        elif data_name == "mnist-thickness-slant":
+        elif data_name == "mnist-thickness-slant" or (data_name == "mnist-thickness-intensity-slant" and self.which_source == "source2"):
             model.update(
                 slant_mu = np.mean(labels[:, 1]),
                 slant_std = np.std(labels[:, 1])
@@ -612,10 +620,10 @@ class MorphoMNISTDataset_causal(ImageFolderDataset):
     def _normalise_labels(self, thickness, intensity=None, slant=None, classes=None):
         ## gamma normalized dist
         thickness = (thickness - self.model["thickness_mu"]) / self.model["thickness_std"]
-        if self.data_name == "mnist-thickness-intensity":
+        if self.data_name == "mnist-thickness-intensity" or (self.data_name == "mnist-thickness-intensity-slant" and self.which_source == "source1"):
             intensity = (intensity - self.model["intensity_mu"]) / self.model["intensity_std"]
             samples = np.concatenate([thickness, intensity], 1)
-        elif self.data_name == "mnist-thickness-slant":
+        elif self.data_name == "mnist-thickness-slant" or (self.data_name == "mnist-thickness-intensity-slant" and self.which_source == "source2"):
             slant = (slant - self.model["slant_mu"]) / self.model["slant_std"]
             samples = np.concatenate([thickness, slant], 1)
         if classes is not None:
@@ -637,7 +645,7 @@ class MorphoMNISTDataset_causal(ImageFolderDataset):
 
         new_labels = np.zeros(shape=(len(labels), 2+10), 
             dtype=np.float32) if self.include_numbers else np.zeros(shape=(len(labels), 2), dtype=np.float32)
-        if self.data_name == "mnist-thickness-intensity":
+        if self.data_name == "mnist-thickness-intensity" or (self.data_name == "mnist-thickness-intensity-slant" and self.which_source == "source1"):
             for i in range(len(labels)):
                 thickness = labels[i]["thickness"]
                 intensity = labels[i]["intensity"]
@@ -652,7 +660,7 @@ class MorphoMNISTDataset_causal(ImageFolderDataset):
                 slant=None,
                 classes=new_labels[:, 2:] if self.include_numbers else None)
 
-        elif self.data_name == "mnist-thickness-slant":
+        elif self.data_name == "mnist-thickness-slant" or (self.data_name == "mnist-thickness-intensity-slant" and self.which_source == "source2"):
             for i in range(len(labels)):
                 thickness = labels[i]["thickness"]
                 slant = labels[i]["slant"]

@@ -9,11 +9,16 @@ from torch.distributions import Gamma, Normal
 
 
 ## select the dataset
-def set_dataset(dataset_name: str):
+def set_dataset(dataset_name: str, which_source=None):
     if dataset_name == "mnist-thickness-intensity":
         return ["thickness", "intensity"]
     elif dataset_name == "mnist-thickness-slant":
         return ["thickness", "slant"]
+    elif dataset_name == "mnist-thickness-intensity-slant":
+        if which_source == "source1":
+            return ["thickness", "intensity"]
+        elif which_source == "source2":
+            return ["thickness", "slant"]
     else:
         raise ValueError("Dataset name not found")
 
@@ -24,13 +29,15 @@ class MorphoSampler:
         dataset_name: str,
         use_groud_truth: bool = False,
         label_path: str = None,
+        which_source: str = None
     ):
         self.dataset_name = dataset_name
         self.use_ground_truth = use_groud_truth
-        self.vars = set_dataset(self.dataset_name)
         self.label_path = label_path
+        self.which_source = which_source
+        self.vars = set_dataset(self.dataset_name, self.which_source)
         if use_groud_truth:
-            self.model = model(self.dataset_name, self.use_ground_truth)
+            self.model = model(self.dataset_name, self.use_ground_truth, self.which_source)
         else:
             assert self.label_path is not None
             if not self.label_path.endswith("/"):
@@ -40,12 +47,13 @@ class MorphoSampler:
                 temp_path = self.label_path.split("/")[:-2]
                 temp_path = os.path.join(*temp_path)
                 self.label_path = "/" + os.path.join(temp_path, "trainset/")
-            self._get_all_fnames()
-            self._image_fnames = sorted(fname for fname in self._all_fnames if self._file_ext(fname) == ".png")
-            self.df = get_data(self.vars, self.label_path, self._image_fnames)
+            # self._get_all_fnames()
+            # self._image_fnames = sorted(fname for fname in self._all_fnames if self._file_ext(fname) == ".png")
+            self.df = get_data(self.vars, self.label_path, self.which_source)
             ## model learned from the data
-            self.model = estimate_mle(self.dataset_name, 
-                                      self.vars, self.df)
+            # self.model = estimate_mle(self.dataset_name, 
+            #                           self.vars, self.df,
+            #                           self.which_source)
         
     def _get_all_fnames(self):
         if os.path.isdir(self.label_path):
@@ -65,12 +73,14 @@ class MorphoSampler:
         assert self.use_ground_truth == True
         if normalize:
             samples = sample_gt(self.dataset_name, self.model,
-                            num_samples=num_samples, include_numbers=include_numbers)
-            samples = preprocess_samples(*samples, dataset_name=self.dataset_name)
+                            num_samples=num_samples, include_numbers=include_numbers,
+                            which_source=self.which_source)
+            samples = preprocess_samples(*samples, dataset_name=self.dataset_name, which_source=self.which_source)
             return samples
         else:
             return sample_gt(self.dataset_name, self.model, 
-                          num_samples=num_samples, include_numbers=include_numbers)
+                          num_samples=num_samples, include_numbers=include_numbers,
+                          which_source=self.which_source)
     
     def sampling_from_learned_space(
         self, num_samples: int = 100,
@@ -79,17 +89,21 @@ class MorphoSampler:
         assert self.use_ground_truth == False
         if normalize:
             samples = sample_from_model(self.dataset_name, self.model,
-                                        num_samples=num_samples, include_numbers=include_numbers)
-            samples = preprocess_samples(*samples, dataset_name=self.dataset_name)
+                                        num_samples=num_samples, include_numbers=include_numbers,
+                                        which_source=self.which_source)
+            samples = preprocess_samples(*samples, dataset_name=self.dataset_name, which_source=self.which_source)
             return samples
         else:
             return sample_from_model(self.dataset_name, self.model,
-                                        num_samples=num_samples, include_numbers=include_numbers)
+                                    num_samples=num_samples, include_numbers=include_numbers,
+                                    which_source=self.which_source)
     def sampling_slant(
         self, thickness, normalize: bool = False,
         model_=None
     ):
-        assert self.dataset_name == "mnist-thickness-slant"
+        assert self.dataset_name in ["mnist-thickness-slant", "mnist-thickness-intensity-slant"]
+        if self.dataset_name == "mnist-thickness-intensity-slant":
+            assert self.which_source == "source2"
         thickness = thickness.reshape(-1, 1)
         if self.use_ground_truth:
             ## estimate the slant from the thickness
@@ -99,6 +113,7 @@ class MorphoSampler:
         else:
             normal = Normal(loc=torch.zeros_like(torch.tensor(self.model["slant_mu"])),
                         scale=torch.tensor(self.model["slant_std"]))
+            # temp_thickness = torch.sigmoid(thickness)
             slant = thickness @ self.model["slant_weights"].T + self.model["slant_bias"] + normal.sample((thickness.shape[0], 1))
         if normalize:
             thickness = (thickness - model_["thickness_mu"].reshape(-1, 1)) / model_["thickness_std"].reshape(-1, 1)
@@ -109,7 +124,9 @@ class MorphoSampler:
         self, thickness, normalize: bool = False,
         model_=None
     ):
-        assert self.dataset_name == "mnist-thickness-intensity"
+        assert self.dataset_name in ["mnist-thickness-intensity", "mnist-thickness-intensity-slant"]
+        if self.dataset_name == "mnist-thickness-intensity-slant":
+            assert self.which_source == "source1"
         thickness = thickness.reshape(-1, 1)
         if self.use_ground_truth:
             ## estimate the intensity from the thickness
@@ -119,14 +136,15 @@ class MorphoSampler:
         else:
             normal = Normal(loc=torch.zeros_like(torch.tensor(self.model["intensity_mu"])),
                         scale=torch.tensor(self.model["intensity_std"]))
+            # temp_thickness = torch.sigmoid(thickness)
             intensity = thickness @ self.model["intensity_weights"].T + self.model["intensity_bias"] + normal.sample((thickness.shape[0], 1))
         if normalize:
             thickness = (thickness - model_["thickness_mu"].reshape(-1, 1)) / model_["thickness_std"].reshape(-1, 1)
             intensity = (intensity - model_["intensity_mu"].reshape(-1, 1)) / model_["intensity_std"].reshape(-1, 1)
         return thickness, intensity
 
-def model(dataset_name: str, use_ground_truth: bool = False):
-    assert dataset_name in ["mnist-thickness-intensity", "mnist-thickness-slant"]
+def model(dataset_name: str, use_ground_truth: bool = False, which_source: str = None):
+    assert dataset_name in ["mnist-thickness-intensity", "mnist-thickness-slant", "mnist-thickness-intensity-slant"]
     if use_ground_truth:
         if dataset_name == "mnist-thickness-intensity":
             gamma_dist = Gamma(torch.tensor([10.]), torch.tensor([5.]))
@@ -134,6 +152,12 @@ def model(dataset_name: str, use_ground_truth: bool = False):
         elif dataset_name == "mnist-thickness-slant":
             gamma_dist = Gamma(torch.tensor([10.]), torch.tensor([5.]))
             norm_dist = Normal(torch.tensor([0.0]), torch.tensor([0.3]))
+        elif dataset_name == "mnist-thickness-intensity-slant":
+            gamma_dist = Gamma(torch.tensor([10.]), torch.tensor([5.]))
+            if which_source == "source1":
+                norm_dist = Normal(torch.tensor([0.0]), torch.tensor([0.5]))
+            else:
+                norm_dist = Normal(torch.tensor([0.0]), torch.tensor([0.3]))
         model = dict(
             gamma = gamma_dist,
             normal = norm_dist
@@ -144,9 +168,10 @@ def sample_gt(
     dataset_name: str, 
     model,
     num_samples: int = 100,
-    include_numbers: bool = False
+    include_numbers: bool = False,
+    which_source: str = None
 ):
-    assert dataset_name in ["mnist-thickness-intensity", "mnist-thickness-slant"]
+    assert dataset_name in ["mnist-thickness-intensity", "mnist-thickness-slant", "mnist-thickness-intensity-slant"]
     classes = None
     if dataset_name == "mnist-thickness-intensity":
         thickness = 0.5 + model["gamma"].sample((num_samples, 1))
@@ -160,6 +185,18 @@ def sample_gt(
         slant = 56 * torch.tanh(normal_dist + thickness - 2.5)
         slant = slant.reshape(-1, 1)
         intensity = None
+    elif dataset_name == "mnist-thickness-intensity-slant":
+        thickness = 0.5 + model["gamma"].sample((num_samples, 1))
+        if which_source == "source1":
+            intensity_normal_dist = model["normal"].sample((num_samples, 1))
+            intensity = 191 * torch.sigmoid(intensity_normal_dist + 2 * thickness - 5) + 64
+            intensity = intensity.reshape(-1, 1)
+            slant = None
+        else:
+            slant_normal_dist = model["normal"].sample((num_samples, 1))
+            slant = 56 * torch.tanh(slant_normal_dist + thickness - 2.5)
+            slant = slant.reshape(-1, 1)
+            intensity = None
 
     if include_numbers:
         classes = torch.randint(0, 10, size=(num_samples,))
@@ -170,9 +207,11 @@ def sample_from_model(
     dataset_name: str,
     model,
     num_samples: int = 100,
-    include_numbers: bool = False
+    include_numbers: bool = False,
+    which_source: str = None
 ):
-    assert dataset_name in ["mnist-thickness-intensity", "mnist-thickness-slant"]
+    assert dataset_name in ["mnist-thickness-intensity", "mnist-thickness-slant",
+                            "mnist-thickness-intensity-slant"]
     classes = None
     if include_numbers:
         classes = torch.randint(0, 10, size=(num_samples,))
@@ -188,25 +227,46 @@ def sample_from_model(
             ),
             dtype=torch.float32
         )
+        normal = Normal(loc=torch.zeros_like(torch.tensor(model["thickness_mu"])),
+                        scale=torch.tensor(model["thickness_std"]))
+        temp_thickness = thickness + normal.sample((thickness.shape[0], 1))
+    # temp_thickness = torch.sigmoid(thickness)
     if dataset_name == "mnist-thickness-intensity":
-        normal = Normal(loc=torch.zeros_like(torch.tensor(model["intensity_mu"])),
-                        scale=torch.tensor(model["intensity_std"]))
-        intensity = thickness @ model["intensity_weights"].T + model["intensity_bias"] + normal.sample((num_samples, 1))
+        # normal = Normal(loc=torch.zeros_like(torch.tensor(model["intensity_mu"])),
+        #                 scale=torch.tensor(model["intensity_std"]))
+        intensity = temp_thickness @ model["intensity_weights"].T + model["intensity_bias"]
         return thickness, intensity.reshape(-1, 1), None, classes
     elif dataset_name == "mnist-thickness-slant":
-        normal = Normal(loc=torch.zeros_like(torch.tensor(model["slant_mu"])),
-                        scale=torch.tensor(model["slant_std"]))
-        slant = thickness @ model["slant_weights"].T + model["slant_bias"] + normal.sample((num_samples, 1))
+        # normal = Normal(loc=torch.zeros_like(torch.tensor(model["slant_mu"])),
+        #                 scale=torch.tensor(model["slant_std"]))
+        slant = temp_thickness @ model["slant_weights"].T + model["slant_bias"]
         return thickness, None, slant.reshape(-1, 1), classes
+    elif dataset_name == "mnist-thickness-intensity-slant":
+        if which_source == "source1":
+            intensity_normal = Normal(loc=torch.zeros_like(torch.tensor(model["intensity_mu"])),
+                            scale=torch.tensor(model["intensity_std"]))
+            # intensity = model["intensity_model"].predict(temp_thickness.reshape(-1, 1).cpu().detach().numpy())
+            intensity = sigmoid(thickness, *model["intensity_model"])
+            intensity = torch.tensor(intensity, dtype=torch.float32).exp_()
+            # intensity = temp_thickness @ model["intensity_weights"].T + model["intensity_bias"]
+            intensity = intensity.reshape(-1, 1)
+            slant = None
+        else:
+            # slant_normal = Normal(loc=torch.zeros_like(torch.tensor(model["slant_mu"])),
+            #                 scale=torch.tensor(model["slant_std"]))
+            slant = temp_thickness @ model["slant_weights"].T + model["slant_bias"]
+            slant = slant.reshape(-1, 1)
+            intensity = None
+        return thickness, intensity, slant, classes
 
 ## learned model (latent space) using MLE estimation
 def estimate_mle(
     dataset_name: str,
     vars: list,
-    df: pd.DataFrame ## with the data
-    
+    df: pd.DataFrame, ## with the data
+    which_source: str = None
 ):
-    assert dataset_name in ["mnist-thickness-intensity", "mnist-thickness-slant"]
+    assert dataset_name in ["mnist-thickness-intensity", "mnist-thickness-slant", "mnist-thickness-intensity-slant"]
     ## thickness
     thickness = df[vars[0]].values
     alpha_thickness, beta_thickness = estimate_beta1d(
@@ -222,22 +282,30 @@ def estimate_mle(
         thickness_std = thickness.std(),
         thickness_model = "beta",
     )
-    if dataset_name == "mnist-thickness-intensity":
+    if dataset_name == "mnist-thickness-intensity" or (dataset_name == "mnist-thickness-intensity-slant" and which_source == "source1"):
+        from scipy.optimize import curve_fit
         ## intensity
         intensity = df[vars[1]].values
-        thickness = torch.sigmoid(torch.tensor(thickness)).cpu().detach().numpy()
-        intensity_weights, intensity_bias = linear_regression(intensity.reshape(-1, 1), thickness.reshape(-1, 1))
+        # p0 = [max(intensity), np.median(intensity),1,min(intensity)] # this is an mandatory initial guess
+
+        popt, pcov = curve_fit(sigmoid, thickness, intensity)
+
+        # temp_thickness = torch.sigmoid(torch.tensor(thickness)).cpu().detach().numpy()
+        # intensity_model, intensity_weights, intensity_bias = linear_regression(log_intensity.reshape(-1, 1), thickness.reshape(-1, 1))
         model.update(
-            intensity_weights = intensity_weights,
-            intensity_bias = intensity_bias,
+            intensity_model = popt,
+            intensity_cov = pcov,
+            # intensity_model = intensity_model,
+            # intensity_weights = intensity_weights,
+            # intensity_bias = intensity_bias,
             intensity_mu = intensity.mean(),
             intensity_std = intensity.std(),
         )
-    elif dataset_name == "mnist-thickness-slant":
+    elif dataset_name =="mnist-thickness-slant" or (dataset_name == "mnist-thickness-intensity-slant" and which_source == "source2"):
         ## slant
         slant = df[vars[1]].values
-        thickness = torch.sigmoid(torch.tensor(thickness)).cpu().detach().numpy()
-        slant_weights, slant_bias = linear_regression(slant.reshape(-1, 1), thickness.reshape(-1, 1))
+        temp_thickness = torch.sigmoid(torch.tensor(thickness)).cpu().detach().numpy()
+        slant_weights, slant_bias = linear_regression(slant.reshape(-1, 1), temp_thickness.reshape(-1, 1))
         model.update(
             slant_weights = slant_weights,
             slant_bias = slant_bias,
@@ -266,22 +334,30 @@ def estimate_beta1d(x, lo=40, hi=70, method="moments", eps=1e-4):
 def linear_regression(y, x):
     lr = LinearRegression()
     lr.fit(x, y)
-    return lr.coef_, lr.intercept_
+    return lr, lr.coef_, lr.intercept_
+
+def sigmoid(x, L, x0, k, b):
+    y = L / (1 + np.exp(-k*(x-x0))) + b
+    return y
 
 def get_data(
     vars: list,
     path: str = None, 
-    image_fnames: list = None
+    which_source: str = None
 ):
     if path.split("/")[-2] != "trainset":
         raise ValueError("path must be the trainset folder")
-    label_file = os.path.join(path, "dataset.json")
+    label_file = os.path.join(path, f"train_{which_source}.json")
+    # label_file = os.path.join(path, "dataset.json")
     with open(label_file, "rb") as f:
-        labels = json.load(f)["labels"]
+        labels = json.load(f)
+    #     labels = json.load(f)["labels"]
     labels = dict(labels)
-    labels = [labels[fname.replace("\\", "/")] for fname in image_fnames] ## a dict
-    new_labels = np.zeros(shape=(len(labels), len(vars)), dtype=np.float32)
-    for num, l in enumerate(labels):
+    covs_labels = labels["1"]
+    all_keys = list(covs_labels.keys())
+    # labels = [labels[fname.replace("\\", "/")] for fname in image_fnames] ## a dict
+    new_labels = np.zeros(shape=(len(all_keys), len(vars)), dtype=np.float32)
+    for num, (key, l) in enumerate(covs_labels.items()):
         temp = [l[var] for var in vars]
         new_labels[num, :] = temp
     new_labels = pd.DataFrame(new_labels, columns=vars)
@@ -291,17 +367,23 @@ def get_data(
 
 def preprocess_samples(
     thickness, intensity=None, slant=None, classes=None, 
-    dataset_name: str=None
+    dataset_name: str=None,
+    which_source: str = None
 ):
-    assert dataset_name in ["mnist-thickness-intensity", "mnist-thickness-slant"]
+    assert dataset_name in ["mnist-thickness-intensity", "mnist-thickness-slant", 
+                            "mnist-thickness-intensity-slant"]
     ## gamma normalized dist
     thickness = (thickness - thickness.mean()) / thickness.std()
-    if dataset_name == "mnist-thickness-intensity":
+    if dataset_name == "mnist-thickness-intensity" or (dataset_name == "mnist-thickness-intensity-slant" and which_source == "source1"):
         intensity = (intensity - intensity.mean()) / intensity.std()
-        samples = torch.cat([thickness, intensity], 1)
-    elif dataset_name == "mnist-thickness-slant":
+        if dataset_name == "mnist-thickness-intensity":
+            samples = torch.cat([thickness, intensity], 1)
+    elif dataset_name == "mnist-thickness-slant" or (dataset_name == "mnist-thickness-intensity-slant" and which_source == "source2"):
         slant = (slant - slant.mean()) / slant.std()
-        samples = torch.cat([thickness, slant], 1)
+        if dataset_name == "mnist-thickness-slant":
+            samples = torch.cat([thickness, slant], 1)
+    if dataset_name == "mnist-thickness-intensity-slant":
+        samples = torch.cat([thickness, intensity], 1) if which_source == "source1" else torch.cat([thickness, slant], 1)
     if classes is not None:
         if classes.shape[1] != 10:
             classes = torch.nn.functional.one_hot(torch.tensor(classes), num_classes=10)
