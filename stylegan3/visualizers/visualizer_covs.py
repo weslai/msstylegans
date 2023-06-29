@@ -6,10 +6,10 @@ import numpy as np
 import pandas as pd
 import torch
 import click
-from typing import List, Optional, Tuple, Union
+from typing import List, Tuple, Union
 
 from utils import load_generator, generate_images
-from training.dataset import UKBiobankMRIDataset2D, MorphoMNISTDataset_causal
+from training.dataset import UKBiobankMRIDataset2D, MorphoMNISTDataset_causal, UKBiobankRetinalDataset
 from visualizers.visual_two_covs import plot_two_covs_images
 
 # --------------------------------------------------------------------------------------
@@ -61,7 +61,8 @@ def make_transform(translate: Tuple[float,float], angle: float):
 @click.option('--network', 'metric_jsonl', help='Metric jsonl file for one training', required=True)
 # @click.option('--label-mode', 'label_mode', type=click.Choice(['test', 'sampling']), 
 #               default='test', show_default=True)
-@click.option('--dataset', 'dataset', type=click.Choice(['mnist-thickness-intensity', 'mnist-thickness-slant', 'ukb', None]), 
+@click.option('--dataset', 'dataset', type=click.Choice(['mnist-thickness-intensity', 'mnist-thickness-slant', 
+                                                         'ukb', 'retinal', None]),
               default=None, show_default=True)
 @click.option('--data-path1', 'data_path1', type=str, help='Path to the data source 1', required=True)
 @click.option('--data-path2', 'data_path2', type=str, help='Path to the data source 2', required=True)
@@ -99,7 +100,7 @@ def run_visualizer_two_covs(
         --network=https://api.ngc.nvidia.com/v2/models/nvidia/research/stylegan3/versions/1/files/stylegan3-t-metfacesu-1024x1024.pkl
     """
     device = torch.device('cuda')
-    num_labels = 5
+    num_labels = 7
     # Load the network.
     Gen = load_generator(
         network_pkl=None,
@@ -121,6 +122,18 @@ def run_visualizer_two_covs(
                                     mode="test", 
                                     use_labels=True,
                                     xflip=False)
+    elif dataset == "retinal":
+        ds1 = UKBiobankRetinalDataset(data_name=dataset,
+                                      path=data_path1,
+                                      mode="test",
+                                      use_labels=True,
+                                      xflip=False)
+        ds2 = UKBiobankRetinalDataset(data_name=dataset,
+                                      path=data_path2,
+                                      mode="test",
+                                      use_labels=True,
+                                      xflip=False)
+
     elif dataset in ["mnist-thickness-intensity", "mnist-thickness-slant"]:
         dataset2 = "mnist-thickness-slant" if dataset == "mnist-thickness-intensity" else "mnist-thickness-intensity"
         ## seed is as the common convariate (c1)
@@ -143,7 +156,7 @@ def run_visualizer_two_covs(
     c1 = np.mean([c1_min, c1_max])
     c1_range = np.array([c1] * num_labels).reshape(-1, 1)
     c2_range = np.linspace(labels1_min[1]-2, labels1_max[1]+2, num=num_labels).reshape(-1, 1)
-    c3_range = np.linspace(labels2_min[1]-0.5, labels2_max[1]+0.5, num=num_labels).reshape(-1, 1)
+    c3_range = np.linspace(labels2_min[1]-2, labels2_max[1]+2, num=num_labels).reshape(-1, 1)
     c = torch.tensor(np.concatenate([c1_range, c2_range, c3_range], axis=1)).to(device)
     
     # Generate images.
@@ -158,7 +171,7 @@ def run_visualizer_two_covs(
                 gen_images.append(img)
         imgs = torch.cat(gen_images, dim=0)
         plot_two_covs_images(imgs, c2_range, c3_range, dataset_name=dataset, 
-                             save_path=f'{outdir}/seed{seed:04d}.png',
+                             save_path=f'{outdir}/seed{seed:04d}.pdf',
                              single_source=False)
 
 ## --- run ---

@@ -8,7 +8,7 @@ import click
 from typing import List, Tuple, Union
 
 from utils import load_generator, generate_images
-from training.dataset import UKBiobankMRIDataset2D, MorphoMNISTDataset_causal
+from training.dataset import UKBiobankMRIDataset2D, MorphoMNISTDataset_causal, UKBiobankRetinalDataset
 from visualizers.visual_two_covs import plot_two_covs_images
 
 # --------------------------------------------------------------------------------------
@@ -60,7 +60,8 @@ def make_transform(translate: Tuple[float,float], angle: float):
 @click.option('--network', 'metric_jsonl', help='Metric jsonl file for one training', required=True)
 # @click.option('--label-mode', 'label_mode', type=click.Choice(['test', 'sampling']), 
 #               default='test', show_default=True)
-@click.option('--dataset', 'dataset', type=click.Choice(['mnist-thickness-intensity', 'mnist-thickness-slant', 'ukb', None]), 
+@click.option('--dataset', 'dataset', type=click.Choice(['mnist-thickness-intensity', 'mnist-thickness-slant',
+                                                         'ukb', 'retinal', None]),
               default=None, show_default=True)
 @click.option('--data-path', 'data_path', type=str, help='Path to the data source', required=True)
 @click.option('--seeds', type=parse_range, help='List of random seeds (e.g., \'0,1,4-6\')', required=True)
@@ -113,8 +114,12 @@ def run_visualizer_two_covs_singlesource(
                                     mode="test", 
                                     use_labels=True,
                                     xflip=False)
-        which_source = ds.which_source
-        dataset = dataset + "_" + which_source
+    elif dataset == "retinal":
+        ds = UKBiobankRetinalDataset(data_name=dataset,
+                                    path=data_path,
+                                    mode="test", 
+                                    use_labels=True,
+                                    xflip=False)
     elif dataset in ["mnist-thickness-intensity", "mnist-thickness-slant"]:
         ## seed is as the common convariate (c1)
         ds = MorphoMNISTDataset_causal(data_name=dataset,
@@ -122,10 +127,13 @@ def run_visualizer_two_covs_singlesource(
                                         mode="test",
                                         use_labels=True,
                                         xflip=False)
+    if dataset in ["ukb", "retinal"]:
+        which_source = ds.which_source
+        dataset = dataset + "_" + which_source
     labels = ds._load_raw_labels() ## (c1, c2)
     labels_min, labels_max = labels.min(axis=0), labels.max(axis=0)
-    c1_range = np.linspace(labels_min[0]-0.5, labels_max[0]+0.5, num=num_labels).reshape(-1, 1)
-    c2_range = np.linspace(labels_min[1]-0.5, labels_max[1]+0.5, num=num_labels).reshape(-1, 1)
+    c1_range = np.linspace(labels_min[0]-2, labels_max[0]+2, num=num_labels).reshape(-1, 1)
+    c2_range = np.linspace(labels_min[1]-2, labels_max[1]+2, num=num_labels).reshape(-1, 1)
     c = torch.tensor(np.concatenate([c1_range, c2_range], axis=1)).to(device)
     
     # Generate images.
@@ -140,7 +148,7 @@ def run_visualizer_two_covs_singlesource(
                 gen_images.append(img)
         imgs = torch.cat(gen_images, dim=0)
         plot_two_covs_images(imgs, c1_range, c2_range, dataset_name=dataset,
-                             save_path=f'{outdir}/seed{seed:04d}.png',
+                             save_path=f'{outdir}/seed{seed:04d}.pdf',
                              single_source=True)
 
 ## --- run ---

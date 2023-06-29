@@ -57,24 +57,34 @@ def plot_two_covs_images(
         elif dataset_name.split("_")[0] == "ukb":
             c2_name = "age"
             c3_name = "brain" if dataset_name.split("_")[-1] == "source1" else "ventricles"
+        elif dataset_name.split("_")[0] == "retinal":
+            c2_name = "age"
+            c3_name = "systolic bp" if dataset_name.split("_")[-1] == "source1" else "cylindrical power"
+            dataset_name = "retinal"
     else:
         if dataset_name in ["mnist-thickness-intensity", "mnist-thickness-slant"]:
             c2_name, c3_name = "intensity", "slant"
         elif dataset_name == "ukb":
             c2_name, c3_name = "brain", "ventricles"
+        elif dataset_name == "retinal":
+            c2_name, c3_name = "systolic bp", "cylindrical power"
     images = images.cpu().detach().numpy()
     ncols = np.sqrt(images.shape[0]).astype(int)
     nrows = ncols
-    fig = plt.figure(figsize=(ncols, nrows))
+    fig = plt.figure(figsize=(ncols*3, nrows*2))
     gs = gridspec.GridSpec(nrows, ncols,
         wspace=0.0, hspace=0.0
     )
     for i in range(nrows):
         for j in range(ncols):
-            img = images[i * ncols + j][:, :, 0]
             ax = plt.subplot(gs[i, j])
             # ax.imshow(img, cmap="gray")
-            ax.imshow(img, cmap="gray", vmin=0, vmax=255)
+            if dataset_name == "retinal":
+                img = images[i * ncols + j] ### (M, M, 3)
+                ax.imshow(img, vmin=0, vmax=255)
+            else:
+                img = images[i * ncols + j][:, :, 0]
+                ax.imshow(img, cmap="gray", vmin=0, vmax=255)
             if j == 0:
                 ax.set_ylabel("{:.2f}".format(c2[i][0]), fontsize=8)
             if i == nrows - 1:
