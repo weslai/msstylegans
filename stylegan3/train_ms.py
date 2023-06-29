@@ -135,7 +135,7 @@ def init_dataset_kwargs(data, name, use_labels, mode: str,
                 xflip=False
             )
         ## for Morpho-MNIST
-        elif name == "mnist-thickness-intensity" or name == "mnist-thickness-slant":
+        elif name == "mnist-thickness-intensity" or name == "mnist-thickness-slant" or name == "mnist-thickness-intensity-slant":
             dataset_kwargs = dnnlib.EasyDict(
                 class_name='training.dataset.MorphoMNISTDataset_causal', 
                 data_name=name,     

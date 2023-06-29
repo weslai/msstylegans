@@ -172,13 +172,15 @@ def training_loop(
     
 
     # Load Latent Space sampler
-    if training_set.data_name == "mnist-thickness-intensity" or training_set.data_name == "mnist-thickness-slant":
+    if training_set.data_name == "mnist-thickness-intensity" or training_set.data_name == "mnist-thickness-slant" or training_set.data_name == "mnist-thickness-intensity-slant":
         latent_sampler1 = MorphoSampler(dataset_name=training_set.data_name,
                                         label_path=training_set._path,
-                                        use_groud_truth=use_ground_truth)
+                                        use_groud_truth=use_ground_truth,
+                                        which_source="source1")
         latent_sampler2 = MorphoSampler(dataset_name=training_set1.data_name,
                                         label_path=training_set1._path,
-                                        use_groud_truth=use_ground_truth)
+                                        use_groud_truth=use_ground_truth,
+                                        which_source="source2")
     else:
         latent_sampler1 = CausalSampling(dataset=training_set.data_name,
                                          label_path=training_set._path)
@@ -297,7 +299,7 @@ def training_loop(
         grid_z = torch.randn([labels.shape[0], G.z_dim], device=device).split(batch_gpu)
         
         ## labels estimation for source 1
-        if training_set.data_name == "mnist-thickness-intensity":
+        if training_set.data_name == "mnist-thickness-intensity" or training_set.data_name == "mnist-thickness-slant" or training_set.data_name == "mnist-thickness-intensity-slant":
             thickness = labels[:, 0] * training_set1.model["thickness_std"] + training_set1.model["thickness_mu"]
             _, slant = latent_sampler2.sampling_slant(thickness, normalize=True, model_=training_set1.model)
             labels = np.concatenate([labels, slant], axis=1)
@@ -353,7 +355,7 @@ def training_loop(
             phase_real_img2 = (phase_real_img2.to(device).to(torch.float32) / 127.5 - 1).split(batch_gpu)
 
             ## estimate the latent space (hidden variables)
-            if training_set.data_name == "mnist-thickness-intensity": 
+            if training_set.data_name == "mnist-thickness-intensity" or training_set.data_name == "mnist-thickness-slant" or training_set.data_name == "mnist-thickness-intensity-slant":
                 ## estimate slants
                 thickness = phase_real_c1[:, 0] * torch.tensor(training_set1.model["thickness_std"]) + torch.tensor(training_set1.model["thickness_mu"])
                 _, slant = latent_sampler2.sampling_slant(thickness.reshape(-1, 1), normalize=True, model_=training_set1.model)
@@ -389,7 +391,8 @@ def training_loop(
             all_gen_c2 = torch.from_numpy(np.stack(all_gen_c2)) ## (c1), c3
 
             ## estimate the latent space (hidden variables)
-            if training_set.data_name == "mnist-thickness-intensity": ## estimate slants
+            if training_set.data_name == "mnist-thickness-intensity" or training_set.data_name == "mnist-thickness-slant" or training_set.data_name == "mnist-thickness-intensity-slant": 
+                ## estimate slants
                 thickness = all_gen_c1[:, 0] * torch.tensor(training_set1.model["thickness_std"]) + torch.tensor(training_set1.model["thickness_mu"])
                 _, slant = latent_sampler2.sampling_slant(thickness.reshape(-1, 1), normalize=True, model_=training_set1.model)
                 all_gen_c1 = torch.cat([all_gen_c1, slant], dim=1).pin_memory().to(device)
