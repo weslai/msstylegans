@@ -80,7 +80,7 @@ def iterate_random_labels(opts, batch_size):
                 for _i in range(batch_size//2):
                     source1, source2 = concat_dataset[np.random.randint(len(concat_dataset))]
                     label1, label2 = source1[1], source2[1]
-                    if dataset.data_name == "mnist-thickness-intensity":
+                    if dataset.data_name == "mnist-thickness-intensity" or dataset.data_name == "mnist-thickness-intensity-slant":
                         ## estimation
                         c1 = label1[0] * dataset1.model["thickness_std"] + dataset1.model["thickness_mu"]
                         _, c3 = opts.sampler2.sampling_slant(torch.tensor(c1), normalize=True, model_=dataset1.model)
