@@ -11,6 +11,7 @@ import click
 from eval_utils import calc_fid_score
 from utils import load_generator, generate_images
 from eval_dataset import MorphoMNISTDataset_causal, UKBiobankMRIDataset2D, UKBiobankMRIDataset2D_single, ConcatDataset
+from eval_dataset import UKBiobankRetinalDataset2D, UKBiobankRetinalDataset2D_single
 from latent_dist_morphomnist import MorphoSampler
 
 # --------------------------------------------------------------------------------------
@@ -29,7 +30,8 @@ def parse_vec2(s: Union[str, Tuple[float, float]]) -> Tuple[float, float]:
 
 @click.command()
 @click.option('--network', 'metric_jsonl', help='Metric jsonl file for one training', required=True)
-@click.option('--dataset', 'dataset', type=click.Choice(['mnist-thickness-intensity', 'mnist-thickness-slant', 'ukb', None]), 
+@click.option('--dataset', 'dataset', type=click.Choice(['mnist-thickness-intensity', 'mnist-thickness-slant', 
+                                                         'ukb', 'retinal', None]),
               default=None, show_default=True)
 @click.option('--data-path1', 'data_path1', type=str, help='Path to the data source 1', required=True)
 @click.option('--data-path2', 'data_path2', type=str, help='Path to the data source 2', default=None, required=False)
@@ -126,6 +128,40 @@ def run_general_fid(
             labels2 = ds2._load_raw_labels()
         else:
             ds1 = UKBiobankMRIDataset2D_single(data_name=dataset,
+                                                path=data_path1, 
+                                                mode="test", 
+                                                use_labels=True,
+                                                xflip=False)
+            labels = ds1._load_raw_labels()
+    elif dataset == "retinal":
+        if data_path2 is not None and source_gan == "multi":
+            ds1 = UKBiobankRetinalDataset2D(data_name=dataset,
+                                        path=data_path1,
+                                        mode="test",
+                                        use_labels=True,
+                                        xflip=False)
+            ds2 = UKBiobankRetinalDataset2D(data_name=dataset,
+                                        path=data_path2,
+                                        mode="test",
+                                        use_labels=True,
+                                        xflip=False)
+            concat_ds = ConcatDataset(ds1, ds2)
+        elif data_path2 is not None and source_gan == "single":
+            ds1 = UKBiobankRetinalDataset2D_single(data_name=dataset,
+                                            path=data_path1,
+                                            mode="test",
+                                            use_labels=True,
+                                            xflip=False)
+            ds2 = UKBiobankRetinalDataset2D_single(data_name=dataset,
+                                            path=data_path2,
+                                            mode="test",
+                                            use_labels=True,
+                                            xflip=False)
+            concat_ds = ConcatDataset(ds1, ds2)
+            labels = ds1._load_raw_labels()
+            labels2 = ds2._load_raw_labels()
+        else:
+            ds1 = UKBiobankRetinalDataset2D_single(data_name=dataset,
                                         path=data_path1, 
                                         mode="test", 
                                         use_labels=True,
@@ -161,7 +197,7 @@ def run_general_fid(
                 batch_labels = []
                 z = torch.randn(batch_gen * 2, Gen.z_dim).to(device)
                 for _i in range(batch_gen):
-                    if dataset != "ukb": ## (c1, c2) ## morpho
+                    if dataset not in ["ukb", "retinal"]: ## (c1, c2) ## morpho
                         ## need to estimate c3
                         source_c1, source_c2 = concat_ds[np.random.randint(len(concat_ds))]
                         label1, label2 = source_c1[1], source_c2[1]
@@ -210,8 +246,12 @@ def run_general_fid(
             c = torch.from_numpy(np.stack(c, axis=0)).to(device)
             batch_imgs = generate_images(Gen, z, c, truncation_psi, noise_mode, translate, rotate).permute(0,3,1,2)
             gen_imgs.append(batch_imgs)
-    real_imgs = torch.cat(real_imgs, dim=0).repeat([1, 3, 1, 1]).to(device) ## (batch_size, channel (3), pixel, pixel)
-    gen_imgs = torch.cat(gen_imgs, dim=0).repeat([1,3,1,1]).to(device) ## (batch_size, channel (3), pixel, pixel)
+    if dataset != "retinal":
+        real_imgs = torch.cat(real_imgs, dim=0).repeat([1, 3, 1, 1]).to(device) ## (batch_size, channel (3), pixel, pixel)
+        gen_imgs = torch.cat(gen_imgs, dim=0).repeat([1,3,1,1]).to(device) ## (batch_size, channel (3), pixel, pixel)
+    else:
+        real_imgs = torch.cat(real_imgs, dim=0).to(device)
+        gen_imgs = torch.cat(gen_imgs, dim=0).to(device)
     print(f"Real images: {real_imgs.shape}")
     print(f"Generated images: {gen_imgs.shape}")
     ### calculate FID

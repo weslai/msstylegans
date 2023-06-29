@@ -11,6 +11,7 @@ import click
 from eval_utils import calc_fid_score
 from utils import load_generator, generate_images
 from eval_dataset import UKBiobankMRIDataset2D, UKBiobankMRIDataset2D_single
+from eval_dataset import UKBiobankRetinalDataset2D, UKBiobankRetinalDataset2D_single
 
 # --------------------------------------------------------------------------------------
 def parse_vec2(s: Union[str, Tuple[float, float]]) -> Tuple[float, float]:
@@ -28,7 +29,8 @@ def parse_vec2(s: Union[str, Tuple[float, float]]) -> Tuple[float, float]:
 
 @click.command()
 @click.option('--network', 'metric_jsonl', help='Metric jsonl file for one training', required=True)
-@click.option('--dataset', 'dataset', type=click.Choice(['mnist-thickness-intensity', 'mnist-thickness-slant', 'ukb', None]), 
+@click.option('--dataset', 'dataset', type=click.Choice(['mnist-thickness-intensity', 'mnist-thickness-slant', 
+                                                         'ukb', 'retinal', None]),
               default=None, show_default=True)
 @click.option('--data-path1', 'data_path1', type=str, help='Path to the data source 1', required=True)
 @click.option('--data-path2', 'data_path2', type=str, help='Path to the data source 2', required=True)
@@ -62,35 +64,52 @@ def run_stratified_fid(
                     "num_samples": num_samples, "out_dir": outdir}
     with open(os.path.join(outdir, "config.json"), "w") as f:
         json.dump(config_dict, f)
-    assert dataset == "ukb"
-    ds1 = UKBiobankMRIDataset2D(data_name=dataset, 
-                                path=data_path1, 
-                                mode="test", 
-                                use_labels=True,
-                                xflip=False)
-    ds2 = UKBiobankMRIDataset2D(data_name=dataset, 
-                                path=data_path2, 
-                                mode="test", 
-                                use_labels=True,
-                                xflip=False)
-    ds_gen = UKBiobankMRIDataset2D_single(data_name=dataset,
-                                path=data_path1,
-                                mode="test", 
-                                use_labels=True,
-                                xflip=False)
+    assert dataset == "ukb" or dataset == "retinal"
+    if dataset == "ukb":
+        ds1 = UKBiobankMRIDataset2D(data_name=dataset, 
+                                    path=data_path1, 
+                                    mode="test", 
+                                    use_labels=True,
+                                    xflip=False)
+        ds2 = UKBiobankMRIDataset2D(data_name=dataset, 
+                                    path=data_path2, 
+                                    mode="test", 
+                                    use_labels=True,
+                                    xflip=False)
+        ds_gen = UKBiobankMRIDataset2D_single(data_name=dataset,
+                                    path=data_path1,
+                                    mode="test", 
+                                    use_labels=True,
+                                    xflip=False)
+    elif dataset == "retinal":
+        ds1 = UKBiobankRetinalDataset2D(data_name=dataset, 
+                                    path=data_path1, 
+                                    mode="test", 
+                                    use_labels=True,
+                                    xflip=False)
+        ds2 = UKBiobankRetinalDataset2D(data_name=dataset, 
+                                    path=data_path2, 
+                                    mode="test", 
+                                    use_labels=True,
+                                    xflip=False)
+        ds_gen = UKBiobankRetinalDataset2D_single(data_name=dataset,
+                                    path=data_path1,
+                                    mode="test", 
+                                    use_labels=True,
+                                    xflip=False)
     labels1 = ds1._load_raw_labels() ## (c1, c2, c3) ## ground truth, c1 fixed
     labels2 = ds2._load_raw_labels() ## (c1, c2, c3) ## ground truth, c1 fixed
     label_gen = ds_gen._load_raw_labels() ## (c1, c2) ## only c1 and c2
 
     labels_all = np.concatenate([labels1, labels2], axis=0) ## (c1, c2, c3)
     age_all, brain_all, ventricle_all = labels_all[:,0], labels_all[:,1], labels_all[:,2]
-    age_hist = np.histogram(age_all, bins=6)
-    brain_hist = np.histogram(brain_all, bins=6)
-    ventricle_hist = np.histogram(ventricle_all, bins=6)
+    age_hist = np.histogram(age_all, bins=3)
+    brain_hist = np.histogram(brain_all, bins=3)
+    ventricle_hist = np.histogram(ventricle_all, bins=3)
     strata_hist = {"c1": age_hist, "c2": brain_hist, "c3": ventricle_hist} ## define strata
 
     strata_distance = 1 ## distance between strata
-    strata_idxs = [i for i in np.arange(1, 6, strata_distance)]
+    strata_idxs = [i for i in np.arange(1, 3, strata_distance)]
     # Load the network.
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     batch_gen = 4
@@ -116,7 +135,7 @@ def run_stratified_fid(
                 idxs2 = np.where((labels2[:,0] >= cur_c1[0]) & (labels2[:,0] < cur_c1[1]) & \
                                 (labels2[:,1] >= cur_c2[0]) & (labels2[:,1] < cur_c2[1]) & \
                                 (labels2[:,2] >= cur_c3[0]) & (labels2[:,2] < cur_c3[1]))[0]
-                # print(idxs1, idxs2)
+                print(idxs1, idxs2)
                 # scores.append(np.array([cur_c1[0], cur_c1[1], cur_c2[0], cur_c2[1],
                 #                         cur_c3[0], cur_c3[1], (len(idxs1)+len(idxs2))]))
                 if len(idxs1) + len(idxs2) > 10:
@@ -124,7 +143,10 @@ def run_stratified_fid(
                         real_imgs.append(torch.tensor(ds1[idx][0]))
                     for idx in idxs2:
                         real_imgs.append(torch.tensor(ds2[idx][0]))
-                    real_imgs = torch.stack(real_imgs, dim=0).repeat([1,3,1,1]).to(device) ## (batch_size, channel (3), pixel, pixel)
+                    if dataset == "ukb":
+                        real_imgs = torch.stack(real_imgs, dim=0).repeat([1,3,1,1]).to(device) ## (batch_size, channel (3), pixel, pixel)
+                    elif dataset == "retinal":
+                        real_imgs = torch.stack(real_imgs, dim=0).repeat([1,1,1,1]).to(device)
                     ## get samples from GANs
                     for _ in range(num_samples // batch_gen):
                         z = torch.randn(batch_gen, Gen.z_dim).to(device)
@@ -145,7 +167,10 @@ def run_stratified_fid(
                         # l = torch.cat([c1, c2, c3], dim=1).to(device)
                         batch_imgs = generate_images(Gen, z, l, truncation_psi, noise_mode, translate, rotate).permute(0,3,1,2)
                         gen_imgs.append(batch_imgs)
-                    gen_imgs = torch.cat(gen_imgs, dim=0).repeat([1,3,1,1]).to(device) ## (batch_size, channel (3), pixel, pixel)
+                    if dataset == "ukb":
+                        gen_imgs = torch.cat(gen_imgs, dim=0).repeat([1,3,1,1]).to(device)## (batch_size, channel (3), pixel, pixel)
+                    elif dataset == "retinal":
+                        gen_imgs = torch.cat(gen_imgs, dim=0).repeat([1,1,1,1]).to(device)
                     ### within strata, calculate FID
                     fid_score = calc_fid_score(real_imgs, gen_imgs, batch_size=64)
                     print(f"strata: {cur_c1}, {cur_c2}, {cur_c3}, FID: {fid_score}")
@@ -154,7 +179,7 @@ def run_stratified_fid(
                                 cur_c3[0], cur_c3[1], fid_score.cpu().detach().numpy()]))
     scores = np.stack(scores, axis=0)
     scores_df = pd.DataFrame(scores, columns=["c1_min", "c1_max", "c2_min", "c2_max", "c3_min", "c3_max", "fid_score"])
-    scores_df.to_csv(os.path.join(outdir, "ms_stratified_fid_distance1.csv"), index=False)
+    scores_df.to_csv(os.path.join(outdir, "ms_stratified_fid.csv"), index=False)
 
 if __name__ == "__main__":
     run_stratified_fid()
