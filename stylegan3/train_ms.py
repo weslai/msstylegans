@@ -111,7 +111,7 @@ def launch_training(c, desc, outdir, dry_run):
 #----------------------------------------------------------------------------
 
 def init_dataset_kwargs(data, name, use_labels, mode: str,
-                        max_size: tuple = None):
+                        max_size: tuple = None, scenario: str = None):
     try:
         ## for UKB
         if name == "ukb":
@@ -160,7 +160,10 @@ def init_dataset_kwargs(data, name, use_labels, mode: str,
         dataset_obj = dnnlib.util.construct_class_by_name(**dataset_kwargs) # Subclass of training.dataset.Dataset.
         dataset_kwargs.resolution = dataset_obj.resolution # Be explicit about resolution.
         dataset_kwargs.use_labels = dataset_obj.has_labels # Be explicit about labels.
-        dataset_kwargs.max_size = len(dataset_obj) # Be explicit about dataset size.
+        if scenario == "half":
+            dataset_kwargs.max_size = int(len(dataset_obj) / 2)
+        else:
+            dataset_kwargs.max_size = len(dataset_obj) # Be explicit about dataset size.
         return dataset_kwargs, dataset_obj.data_name
     except IOError as err:
         raise click.ClickException(f'--data: {err}')
@@ -199,7 +202,7 @@ def parse_comma_separated_list(s):
 @click.option('--aug',          help='Augmentation mode',                                       type=click.Choice(['noaug', 'ada', 'fixed']), default='noaug', show_default=True)
 @click.option('--resume',       help='Resume from given network pickle', metavar='[PATH|URL]',  type=str)
 @click.option('--freezed',      help='Freeze first layers of D', metavar='INT',                 type=click.IntRange(min=0), default=0, show_default=True)
-@click.option('--data_scenario', help='data scenario', metavar='STR',                          type=click.Choice(["low", "high", "lowlow", "highlow"]), 
+@click.option('--data_scenario', help='data scenario', metavar='STR',                          type=click.Choice(["low", "high", "lowlow", "highlow", "half"]), 
                                                                                 default='high', show_default=True)
 
 # Misc hyperparameters.
@@ -263,9 +266,6 @@ def main(**kwargs):
         if opts.data_name == "mnist-thickness-intensity" or opts.data_name == "mnist-thickness-slant":
             max_size = int(60000 / 3)
             max_size1 = int(60000 / 3)
-        elif opts.data_name == "ukb":
-            max_size = int(34593 / 4)
-            max_size1 = None
         elif opts.data_name == "adni" and opts.data_scenario == "low": ## not needed
             max_size = int(7024 / 3)
     elif opts.data_scenario == "high":
@@ -277,17 +277,20 @@ def main(**kwargs):
             max_size1 = int(60000 / 3)
         elif opts.data_name == "ukb":
             max_size1 = None
+    elif opts.data_scenario == "half":
+        max_size = int(60000/2)
+        max_size1 = int(60000/2)
     ## first dataset
     c.training_set_kwargs,dataset_name1 = init_dataset_kwargs(data=opts.data1, name=opts.data_name1, 
                                                               use_labels=opts.cond, mode="train", 
-                                                              max_size=max_size)
+                                                              max_size=max_size, scenario=opts.data_scenario)
     c.validation_set_kwargs, val_dataset_name1 = init_dataset_kwargs(data=opts.data1, name=opts.data_name1, 
                                                                      use_labels=opts.cond, mode="val", 
                                                                      max_size=None)
     ## second dataset
     c.training_set_kwargs1, dataset_name2 = init_dataset_kwargs(data=opts.data2, name=opts.data_name2, 
                                                                 use_labels=opts.cond, mode="train", 
-                                                                max_size=max_size)
+                                                                max_size=max_size1, scenario=opts.data_scenario)
     c.validation_set_kwargs1, val_dataset_name2 = init_dataset_kwargs(data=opts.data2, name=opts.data_name2, 
                                                                       use_labels=opts.cond, mode="val", 
                                                                       max_size=None)

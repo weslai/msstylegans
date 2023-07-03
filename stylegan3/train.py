@@ -148,7 +148,7 @@ def init_dataset_kwargs(data, name, use_labels, mode: str,
                 xflip=False
             )
         ## for Morpho-MNIST
-        elif name == "mnist-thickness-intensity" or name == "mnist-thickness-slant":
+        elif name == "mnist-thickness-intensity" or name == "mnist-thickness-slant" or name == "mnist-thickness-intensity-slant":
             dataset_kwargs = dnnlib.EasyDict(
                 class_name='training.dataset.MorphoMNISTDataset_causal', 
                 data_name=name,     
@@ -273,21 +273,12 @@ def main(**kwargs):
     if opts.data_scenario == "low" or opts.data_scenario == "lowlow":
         if opts.data_name == "mnist-thickness-intensity" or opts.data_name == "mnist-thickness-slant":
             max_size = int(60000 / 3)
-            max_size1 = int(60000 / 3)
         elif opts.data_name == "ukb":
             max_size = int(34593 / 4)
-            max_size1 = None
         elif opts.data_name == "adni" and opts.data_scenario == "low": ## not needed
             max_size = int(7024 / 3)
     elif opts.data_scenario == "high":
         max_size = None
-        max_size1 = None
-    elif opts.data_scenario == "highlow":
-        max_size = None
-        if opts.data_name == "mnist-thickness-intensity" or opts.data_name == "mnist-thickness-slant":
-            max_size1 = int(60000 / 3)
-        elif opts.data_name == "ukb":
-            max_size1 = None
 
     c.training_set_kwargs, dataset_name = init_dataset_kwargs(data=opts.data, name=opts.data_name, use_labels=opts.cond, 
                                                               mode="train",

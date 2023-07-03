@@ -17,12 +17,12 @@ import legacy
 from evaluations.eval_utils import get_k_lowest_checkpoints
 
 ## pairplot
-def plot_pairplots(df, save_path: str = None):
+def plot_pairplots(df, diag_kind: str = "hist", save_path: str = None):
     """
         df: (pd.DataFrame) with columns names (add type as a column)
     """
     # grid = sns.PairGrid(data=df, hue="type")
-    grid = sns.pairplot(data=df, hue="type", diag_kind="hist", size=2)
+    grid = sns.pairplot(data=df, hue="type", diag_kind=diag_kind, size=2)
     grid.savefig(save_path)
     grid.savefig(save_path.replace(".png", ".pdf"))
     return grid
