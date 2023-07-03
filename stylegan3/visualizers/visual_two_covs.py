@@ -51,7 +51,7 @@ def plot_two_covs_images(
     single_source: bool = True
 ):
     if single_source:
-        if dataset_name in ["mnist-thickness-intensity", "mnist-thickness-slant"]:
+        if dataset_name in ["mnist-thickness-intensity", "mnist-thickness-slant", "mnist-thickness-intensity-slant"]:
             c2_name = "thickness"
             c3_name = "intensity" if dataset_name == "mnist-thickness-intensity" else "slant"
         elif dataset_name.split("_")[0] == "ukb":
@@ -62,7 +62,7 @@ def plot_two_covs_images(
             c3_name = "systolic bp" if dataset_name.split("_")[-1] == "source1" else "cylindrical power"
             dataset_name = "retinal"
     else:
-        if dataset_name in ["mnist-thickness-intensity", "mnist-thickness-slant"]:
+        if dataset_name in ["mnist-thickness-intensity", "mnist-thickness-slant", "mnist-thickness-intensity-slant"]:
             c2_name, c3_name = "intensity", "slant"
         elif dataset_name == "ukb":
             c2_name, c3_name = "brain", "ventricles"
@@ -71,14 +71,13 @@ def plot_two_covs_images(
     images = images.cpu().detach().numpy()
     ncols = np.sqrt(images.shape[0]).astype(int)
     nrows = ncols
-    fig = plt.figure(figsize=(ncols*3, nrows*2))
+    fig = plt.figure(figsize=(ncols*2, nrows*2))
     gs = gridspec.GridSpec(nrows, ncols,
         wspace=0.0, hspace=0.0
     )
     for i in range(nrows):
         for j in range(ncols):
             ax = plt.subplot(gs[i, j])
-            # ax.imshow(img, cmap="gray")
             if dataset_name == "retinal":
                 img = images[i * ncols + j] ### (M, M, 3)
                 ax.imshow(img, vmin=0, vmax=255)
@@ -97,5 +96,3 @@ def plot_two_covs_images(
     if save_path is not None:
         plt.savefig(save_path)
     plt.close()
-
-

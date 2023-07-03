@@ -62,7 +62,8 @@ def make_transform(translate: Tuple[float,float], angle: float):
 # @click.option('--label-mode', 'label_mode', type=click.Choice(['test', 'sampling']), 
 #               default='test', show_default=True)
 @click.option('--dataset', 'dataset', type=click.Choice(['mnist-thickness-intensity', 'mnist-thickness-slant', 
-                                                         'ukb', 'retinal', None]),
+                                                         'mnist-thickness-intensity-slant', 'ukb', 
+                                                         'retinal', None]),
               default=None, show_default=True)
 @click.option('--data-path1', 'data_path1', type=str, help='Path to the data source 1', required=True)
 @click.option('--data-path2', 'data_path2', type=str, help='Path to the data source 2', required=True)
@@ -134,8 +135,9 @@ def run_visualizer_two_covs(
                                       use_labels=True,
                                       xflip=False)
 
-    elif dataset in ["mnist-thickness-intensity", "mnist-thickness-slant"]:
-        dataset2 = "mnist-thickness-slant" if dataset == "mnist-thickness-intensity" else "mnist-thickness-intensity"
+    elif dataset in ["mnist-thickness-intensity", "mnist-thickness-slant", "mnist-thickness-intensity-slant"]:
+        dataset2 = "mnist-thickness-intensity-slant" if dataset == "mnist-thickness-intensity" else "mnist-thickness-intensity"
+        # dataset2 = "mnist-thickness-slant" if dataset == "mnist-thickness-intensity" else "mnist-thickness-intensity"
         ## seed is as the common convariate (c1)
         ds1 = MorphoMNISTDataset_causal(data_name=dataset,
                                         path=data_path1,
@@ -171,7 +173,7 @@ def run_visualizer_two_covs(
                 gen_images.append(img)
         imgs = torch.cat(gen_images, dim=0)
         plot_two_covs_images(imgs, c2_range, c3_range, dataset_name=dataset, 
-                             save_path=f'{outdir}/seed{seed:04d}.pdf',
+                             save_path=f'{outdir}/seed{seed:04d}.png',
                              single_source=False)
 
 ## --- run ---
