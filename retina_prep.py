@@ -12,11 +12,11 @@ PHENO_PTH = "/dhc/projects/ukbiobank/original/phenotypes/ukb49727.csv"
 
 QCOVARIATES = {
     "age": 21022, ##c1
-    "systolic_bp": 4080, ##c2
+    "systolic_bp": 4080, ##c2 
     "diastolic_bp": 4079,
     "cylindrical_power_left": 5086, ##c3
     "cylindrical_power_right": 5087,
-    "spherical_power_left": 5085, ##(c3)
+    "spherical_power_left": 5085, ##(c3) kurzsichtigkeit/weitsichtigkeit
     "spherical_power_right": 5084,
 }
 CCOVARIATES = {
