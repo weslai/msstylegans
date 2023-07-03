@@ -189,7 +189,7 @@ def open_mnist_split(
     json_path: str,
     which_dataset: str = None,
 ):
-    df = pd.read_json(json_path).T
+    df = pd.read_json(json_path)
     df.index = range(len(df))
     which_dataset += "set"
     # which_dataset = json_path.split("/")[-2]

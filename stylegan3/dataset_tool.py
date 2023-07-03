@@ -472,12 +472,11 @@ def open_ukb_retinal(
     annotation_path: str,
     max_images: Optional[int],
     which_dataset: str,
-    normalize_img: bool = True,
     covs: list = [
         "path", 
         "age",  
-        "systolic_bp",
-        "cylindrical_power_left"
+        "diastolic_bp",
+        "spherical_power_left"
     ]
 ):
     assert which_dataset in ['train', 'val', 'test']
@@ -733,14 +732,14 @@ def open_dataset(source, *, dataset_name: str = None,
         ## retinal-fundus
         elif source.rstrip('/').endswith("retinal_fundus"):
             return open_ukb_retinal(
-                annotation_path="/dhc/groups/fglippert/Ukbiobank/imaging/retinal_fundus/multisources/phenotype_source1.csv",
+                annotation_path=annotation_path,
                 max_images=max_images,
                 which_dataset=which_dataset,
                 covs=[
                     "path", 
                     "age",  
-                    "systolic_bp",
-                    "cylindrical_power_left"
+                    "diastolic_bp",
+                    "spherical_power_left"
                 ]
             )
         ## adni
