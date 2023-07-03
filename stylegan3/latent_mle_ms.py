@@ -49,9 +49,9 @@ def set_dataset(name: str, which_source=None):
         ## ------------------------------------------------------
     elif name == "retinal":
         if which_source == "source1":
-            VOLS = ["systolic_bp"]
+            VOLS = ["diastolic_bp"]
         elif which_source == "source2":
-            VOLS = ["cylindrical_power_left"]
+            VOLS = ["spherical_power_left"]
         VARS = ["age"] + VOLS
     return VARS, VOLS
 
@@ -126,9 +126,9 @@ class CausalSampling:
             n_components = 13
             age_estimator = "gmm"
             if self.which_source == "source1":
-                log_volumes = False
-            elif self.which_source == "source2":
                 log_volumes = True
+            elif self.which_source == "source2":
+                log_volumes = False
 
         self.model = estimate_mle(
             df = self.get_graph(),

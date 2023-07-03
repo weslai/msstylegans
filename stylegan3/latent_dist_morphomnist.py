@@ -3,6 +3,7 @@ import json
 import numpy as np
 import pandas as pd
 from scipy import stats
+from scipy.optimize import curve_fit
 from sklearn.linear_model import LinearRegression
 import torch
 from torch.distributions import Gamma, Normal
@@ -47,13 +48,13 @@ class MorphoSampler:
                 temp_path = self.label_path.split("/")[:-2]
                 temp_path = os.path.join(*temp_path)
                 self.label_path = "/" + os.path.join(temp_path, "trainset/")
-            # self._get_all_fnames()
-            # self._image_fnames = sorted(fname for fname in self._all_fnames if self._file_ext(fname) == ".png")
-            self.df = get_data(self.vars, self.label_path, self.which_source)
+            self._get_all_fnames()
+            self._image_fnames = sorted(fname for fname in self._all_fnames if self._file_ext(fname) == ".png")
+            self.df = get_data(self.vars, self.label_path, self._image_fnames)
             ## model learned from the data
-            # self.model = estimate_mle(self.dataset_name, 
-            #                           self.vars, self.df,
-            #                           self.which_source)
+            self.model = estimate_mle(self.dataset_name, 
+                                      self.vars, self.df,
+                                      self.which_source)
         
     def _get_all_fnames(self):
         if os.path.isdir(self.label_path):
@@ -111,10 +112,11 @@ class MorphoSampler:
             slant = 56 * torch.tanh(normal_dist + thickness - 2.5)
             slant = slant.reshape(-1, 1)
         else:
-            normal = Normal(loc=torch.zeros_like(torch.tensor(self.model["slant_mu"])),
-                        scale=torch.tensor(self.model["slant_std"]))
-            # temp_thickness = torch.sigmoid(thickness)
-            slant = thickness @ self.model["slant_weights"].T + self.model["slant_bias"] + normal.sample((thickness.shape[0], 1))
+            thickness_normal = Normal(loc=torch.zeros_like(torch.tensor(self.model["slant_mu"])),
+                            scale=torch.tensor(self.model["residual_std"]))
+            temp_thickness = torch.tensor(thickness) + thickness_normal.sample((thickness.shape[0], 1))
+            slant = sigmoid(temp_thickness, *self.model["slant_model"])
+            slant = torch.tensor(slant, dtype=torch.float32).reshape(-1, 1)
         if normalize:
             thickness = (thickness - model_["thickness_mu"].reshape(-1, 1)) / model_["thickness_std"].reshape(-1, 1)
             slant = (slant - model_["slant_mu"].reshape(-1, 1)) / model_["slant_std"].reshape(-1, 1)
@@ -134,10 +136,11 @@ class MorphoSampler:
             intensity = 191 * torch.sigmoid(normal_dist + 2 * thickness - 5) + 64
             intensity = intensity.reshape(-1, 1)
         else:
-            normal = Normal(loc=torch.zeros_like(torch.tensor(self.model["intensity_mu"])),
-                        scale=torch.tensor(self.model["intensity_std"]))
-            # temp_thickness = torch.sigmoid(thickness)
-            intensity = thickness @ self.model["intensity_weights"].T + self.model["intensity_bias"] + normal.sample((thickness.shape[0], 1))
+            thickness_normal = Normal(loc=torch.zeros_like(torch.tensor(self.model["intensity_mu"])),
+                                    scale=torch.tensor(self.model["residual_std"]))
+            temp_thickness = torch.tensor(thickness) + thickness_normal.sample((thickness.shape[0], 1))
+            intensity = sigmoid(temp_thickness, *self.model["intensity_model"])
+            intensity = torch.tensor(intensity, dtype=torch.float32).reshape(-1, 1)
         if normalize:
             thickness = (thickness - model_["thickness_mu"].reshape(-1, 1)) / model_["thickness_std"].reshape(-1, 1)
             intensity = (intensity - model_["intensity_mu"].reshape(-1, 1)) / model_["intensity_std"].reshape(-1, 1)
@@ -243,19 +246,18 @@ def sample_from_model(
         return thickness, None, slant.reshape(-1, 1), classes
     elif dataset_name == "mnist-thickness-intensity-slant":
         if which_source == "source1":
-            intensity_normal = Normal(loc=torch.zeros_like(torch.tensor(model["intensity_mu"])),
-                            scale=torch.tensor(model["intensity_std"]))
-            # intensity = model["intensity_model"].predict(temp_thickness.reshape(-1, 1).cpu().detach().numpy())
-            intensity = sigmoid(thickness, *model["intensity_model"])
-            intensity = torch.tensor(intensity, dtype=torch.float32).exp_()
-            # intensity = temp_thickness @ model["intensity_weights"].T + model["intensity_bias"]
-            intensity = intensity.reshape(-1, 1)
+            thickness_normal = Normal(loc=torch.zeros_like(torch.tensor(model["intensity_mu"])),
+                            scale=torch.tensor(model["residual_std"]))
+            temp_thickness = thickness + thickness_normal.sample((thickness.shape[0], 1))
+            intensity = sigmoid(temp_thickness, *model["intensity_model"])
+            intensity = torch.tensor(intensity, dtype=torch.float32).reshape(-1, 1)
             slant = None
         else:
-            # slant_normal = Normal(loc=torch.zeros_like(torch.tensor(model["slant_mu"])),
-            #                 scale=torch.tensor(model["slant_std"]))
-            slant = temp_thickness @ model["slant_weights"].T + model["slant_bias"]
-            slant = slant.reshape(-1, 1)
+            thickness_normal = Normal(loc=torch.zeros_like(torch.tensor(model["slant_mu"])),
+                            scale=torch.tensor(model["residual_std"]))
+            temp_thickness = thickness + thickness_normal.sample((thickness.shape[0], 1))
+            slant = sigmoid(temp_thickness, *model["slant_model"])
+            slant = torch.tensor(slant, dtype=torch.float32).reshape(-1, 1)
             intensity = None
         return thickness, intensity, slant, classes
 
@@ -283,34 +285,36 @@ def estimate_mle(
         thickness_model = "beta",
     )
     if dataset_name == "mnist-thickness-intensity" or (dataset_name == "mnist-thickness-intensity-slant" and which_source == "source1"):
-        from scipy.optimize import curve_fit
         ## intensity
         intensity = df[vars[1]].values
-        # p0 = [max(intensity), np.median(intensity),1,min(intensity)] # this is an mandatory initial guess
+        p0 = [1, 0, np.mean(intensity), np.mean(intensity)] # this is an mandatory initial guess
 
-        popt, pcov = curve_fit(sigmoid, thickness, intensity)
-
-        # temp_thickness = torch.sigmoid(torch.tensor(thickness)).cpu().detach().numpy()
-        # intensity_model, intensity_weights, intensity_bias = linear_regression(log_intensity.reshape(-1, 1), thickness.reshape(-1, 1))
+        popt, pcov = curve_fit(sigmoid, thickness, intensity, p0=p0)
+        intensity_hat = sigmoid(thickness, *popt)
+        residual = inverse_sigmoid(intensity_hat, *popt) - inverse_sigmoid(intensity, *popt)
+        residual_std = residual.std()
         model.update(
             intensity_model = popt,
             intensity_cov = pcov,
-            # intensity_model = intensity_model,
-            # intensity_weights = intensity_weights,
-            # intensity_bias = intensity_bias,
             intensity_mu = intensity.mean(),
             intensity_std = intensity.std(),
+            residual_std = residual_std,
         )
     elif dataset_name =="mnist-thickness-slant" or (dataset_name == "mnist-thickness-intensity-slant" and which_source == "source2"):
         ## slant
         slant = df[vars[1]].values
-        temp_thickness = torch.sigmoid(torch.tensor(thickness)).cpu().detach().numpy()
-        slant_weights, slant_bias = linear_regression(slant.reshape(-1, 1), temp_thickness.reshape(-1, 1))
+        p0 = [1, 0, np.max(slant), np.min(slant)] # this is an mandatory initial guess
+
+        popt, pcov = curve_fit(sigmoid, thickness, slant, p0=p0)
+        slant_hat = sigmoid(thickness, *popt)
+        residual = inverse_sigmoid(slant_hat, *popt) - inverse_sigmoid(slant, *popt)
+        residual_std = residual.std()
         model.update(
-            slant_weights = slant_weights,
-            slant_bias = slant_bias,
+            slant_model = popt,
+            slant_cov = pcov,
             slant_mu = slant.mean(),
             slant_std = slant.std(),
+            residual_std = residual_std,
         )
     return model
 
@@ -336,28 +340,32 @@ def linear_regression(y, x):
     lr.fit(x, y)
     return lr, lr.coef_, lr.intercept_
 
-def sigmoid(x, L, x0, k, b):
-    y = L / (1 + np.exp(-k*(x-x0))) + b
+def sigmoid(x, a, b, c, d):
+    y = c / (1.0 + np.exp(-a*(x-b))) + d
     return y
+
+def inverse_sigmoid(y, a, b, c, d):
+    x = -np.log(c / (y - d) - 1) / a + b
+    return x
 
 def get_data(
     vars: list,
-    path: str = None, 
-    which_source: str = None
+    path: str = None,
+    image_fnames: list = None
 ):
     if path.split("/")[-2] != "trainset":
         raise ValueError("path must be the trainset folder")
-    label_file = os.path.join(path, f"train_{which_source}.json")
-    # label_file = os.path.join(path, "dataset.json")
+    # label_file = os.path.join(path, f"train_{which_source}.json")
+    label_file = os.path.join(path, "dataset.json")
     with open(label_file, "rb") as f:
-        labels = json.load(f)
-    #     labels = json.load(f)["labels"]
+        # labels = json.load(f)
+        labels = json.load(f)["labels"]
     labels = dict(labels)
-    covs_labels = labels["1"]
-    all_keys = list(covs_labels.keys())
-    # labels = [labels[fname.replace("\\", "/")] for fname in image_fnames] ## a dict
-    new_labels = np.zeros(shape=(len(all_keys), len(vars)), dtype=np.float32)
-    for num, (key, l) in enumerate(covs_labels.items()):
+    # covs_labels = labels["1"]
+    # all_keys = list(covs_labels.keys())
+    labels = [labels[fname.replace("\\", "/")] for fname in image_fnames] ## a dict
+    new_labels = np.zeros(shape=(len(labels), len(vars)), dtype=np.float32)
+    for num, l in enumerate(labels):
         temp = [l[var] for var in vars]
         new_labels[num, :] = temp
     new_labels = pd.DataFrame(new_labels, columns=vars)
