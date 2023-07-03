@@ -109,7 +109,7 @@ def run_stratified_fid(
     strata_hist = {"c1": age_hist, "c2": brain_hist, "c3": ventricle_hist} ## define strata
 
     strata_distance = 1 ## distance between strata
-    strata_idxs = [i for i in np.arange(1, 3, strata_distance)]
+    strata_idxs = [i for i in np.arange(0, 3, strata_distance)]
     # Load the network.
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     batch_gen = 4
