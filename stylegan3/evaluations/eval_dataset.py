@@ -532,6 +532,116 @@ class MorphoMNISTDataset_causal(ImageFolderDataset):
         path, 
         resolution=None,
         mode: str = "train", ##[train, val, test]
+        data_name: str = "mnist-thickness-intensity", ## two datasets: "mnist-thickness-intensity", "mnist-thickness-slant", "mnist-thickness-intensity-slant"
+        include_numbers: bool = False,                ## include numbers as classes for labels
+        **super_kwargs
+    ):
+        self.mode = mode
+        self.include_numbers = include_numbers
+        self.data_name = data_name
+        ## which source
+        self.which_source = [path.split("/")[-1], path.split("/")[-2]]
+        for source in self.which_source:
+            s = source.split("_")[-1]
+            if s.startswith("source"):
+                self.which_source = s
+                break
+        super().__init__(data_name, self.mode, path, resolution, **super_kwargs)
+
+    def _get_mu_std(self, labels=None):
+        model = dict()
+        if self.mode != "train":
+            assert self._path.endswith("valset/") or self._path.endswith("testset/")
+            if self.mode == "val":
+                self.train_path = os.path.join(self._path.split("valset")[0], "trainset/")
+            elif self.mode == "test":
+                self.train_path = os.path.join(self._path.split("testset")[0], "trainset/")
+            self._type = 'dir'
+            self.train_all_fnames = {os.path.relpath(os.path.join(root, fname), start=self.train_path) for root, _dirs, files in os.walk(self.train_path) for fname in files}
+            PIL.Image.init()
+            self.train_image_fnames = sorted(fname for fname in self.train_all_fnames if self._file_ext(fname) in PIL.Image.EXTENSION)
+            fname = "dataset.json"
+            if fname not in self.train_all_fnames:
+                return None
+            with open(os.path.join(self.train_path, fname), 'rb') as f:
+                trainlabels = json.load(f)["labels"]
+            if trainlabels is None:
+                return None
+            trainlabels = dict(trainlabels)
+            trainlabels = [trainlabels[fname.replace("\\", "/")] for fname in self.train_image_fnames] ## a dict
+
+            new_labels = np.zeros(shape=(len(trainlabels), 3), dtype=np.float32)
+            for num, l in enumerate(trainlabels):
+                i = list(l[self.vars[0]].items())[0][0]
+                temp = [l[var][str(i)] for var in self.vars]
+                new_labels[num, :] = temp
+            labels = new_labels
+        model.update(
+            thickness_mu = np.mean(labels[:, 0]),
+            thickness_std = np.std(labels[:, 0]),
+            intensity_mu = np.mean(labels[:, 1]),
+            intensity_std = np.std(labels[:, 1]),
+            slant_mu = np.mean(labels[:, 2]),
+            slant_std = np.std(labels[:, 2])
+        )
+        return model
+
+    def _normalise_labels(self, thickness, intensity=None, slant=None, classes=None):
+        ## gamma normalized dist
+        thickness = (thickness - self.model["thickness_mu"]) / self.model["thickness_std"]
+        intensity = (intensity - self.model["intensity_mu"]) / self.model["intensity_std"]
+        slant = (slant - self.model["slant_mu"]) / self.model["slant_std"]
+        samples = np.concatenate([thickness, intensity, slant], 1)
+        if classes is not None:
+            if classes.shape[1] != 10:
+                classes = F.one_hot(torch.tensor(classes, dtype=torch.long), num_classes=10).cpu().detach().numpy()
+            samples = np.concatenate([samples, classes], 1)
+        return samples
+
+    def _load_raw_labels(self):
+        fname = "dataset.json"
+        if fname not in self._all_fnames:
+            return None
+        with self._open_file(fname) as f:
+            labels = json.load(f)["labels"]
+        if labels is None:
+            return None
+        labels = dict(labels)
+        labels = [labels[fname.replace("\\", "/")] for fname in self._image_fnames] ## a dict
+        self.vars = ["thickness", "intensity", "slant"]
+
+        new_labels = np.zeros(shape=(len(labels), 3+10), 
+            dtype=np.float32) if self.include_numbers else np.zeros(shape=(len(labels), 3), dtype=np.float32)
+        for num, l in enumerate(labels):
+            i = list(l[self.vars[0]].items())[0][0]
+            temp = [l[var][str(i)] for var in self.vars]
+            if self.include_numbers:
+                c = F.one_hot(torch.tensor(labels[i]["label"], dtype=torch.long), num_classes=10)
+                ll = np.concatenate([np.array(temp), c.cpu().detach().numpy()], axis=-1)
+            new_labels[num, :] = ll if self.include_numbers else temp
+        self.model = self._get_mu_std(new_labels)
+        self.new_labels_norm = self._normalise_labels(
+            thickness=new_labels[:, 0].reshape(-1, 1),
+            intensity=new_labels[:, 1].reshape(-1, 1),
+            slant=new_labels[:, 2].reshape(-1, 1),
+            classes=new_labels[:, 2:] if self.include_numbers else None)
+        return new_labels
+    
+    def get_norm_label(self, idx):
+        label = self.new_labels_norm[self._raw_idx[idx]]
+        if label.dtype == np.int64:
+            onehot = np.zeros(self.label_shape, dtype=np.float32)
+            onehot[label] = 1
+            label = onehot
+        return label.copy()
+
+#----------------------------------------------------------------------------
+class MorphoMNISTDataset_causal_single(ImageFolderDataset):
+    def __init__(
+        self,
+        path, 
+        resolution=None,
+        mode: str = "train", ##[train, val, test]
         data_name: str = "mnist-thickness-intensity", ## two datasets: "mnist-thickness-intensity", ""mnist-thickness-slant""
         include_numbers: bool = False,                ## include numbers as classes for labels
         **super_kwargs
@@ -539,9 +649,16 @@ class MorphoMNISTDataset_causal(ImageFolderDataset):
         self.mode = mode
         self.include_numbers = include_numbers
         self.data_name = data_name
+        ## which source
+        self.which_source = [path.split("/")[-1], path.split("/")[-2]]
+        for source in self.which_source:
+            s = source.split("_")[-1]
+            if s.startswith("source"):
+                self.which_source = s
+                break
         super().__init__(data_name, self.mode, path, resolution, **super_kwargs)
 
-    def _get_mu_std(self, labels=None, data_name=None):
+    def _get_mu_std(self, labels=None, which_source=None):
         model = dict()
         if self.mode != "train":
             assert self._path.endswith("valset/") or self._path.endswith("testset/")
@@ -564,40 +681,37 @@ class MorphoMNISTDataset_causal(ImageFolderDataset):
             trainlabels = [trainlabels[fname.replace("\\", "/")] for fname in self.train_image_fnames] ## a dict
 
             new_labels = np.zeros(shape=(len(trainlabels), 2), dtype=np.float32)
-            if self.data_name == "mnist-thickness-intensity":
-                for i in range(len(trainlabels)):
-                    thickness = trainlabels[i]["thickness"]
-                    intensity = trainlabels[i]["intensity"]
-                    new_labels[i, :] = np.array([thickness, intensity], dtype=np.float32)
-            if self.data_name == "mnist-thickness-slant":
-                for i in range(len(trainlabels)):
-                    thickness = trainlabels[i]["thickness"]
-                    slant = trainlabels[i]["slant"]
-                    new_labels[i, :] = np.array([thickness, slant], dtype=np.float32)
+            for num, l in enumerate(trainlabels):
+                i = list(l[self.vars[0]].items())[0][0]
+                temp = [l[var][str(i)] for var in self.vars]
+                new_labels[num, :] = temp
             labels = new_labels
+
         model.update(
-                thickness_mu = np.mean(labels[:, 0]),
-                thickness_std = np.std(labels[:, 0])
-            )
-        if data_name == "mnist-thickness-intensity":
+            thickness_mu = np.mean(labels[:, 0]),
+            thickness_std = np.std(labels[:, 0])
+        )
+        c_additional_mu = np.mean(labels[:, 1])
+        c_additional_std = np.std(labels[:, 1])
+        if which_source == "source1":
             model.update(
-                intensity_mu = np.mean(labels[:, 1]),
-                intensity_std = np.std(labels[:, 1])
+                intensity_mu = c_additional_mu,
+                intensity_std = c_additional_std
             )
-        elif data_name == "mnist-thickness-slant":
+        elif which_source == "source2":
             model.update(
-                slant_mu = np.mean(labels[:, 1]),
-                slant_std = np.std(labels[:, 1])
+                slant_mu = c_additional_mu,
+                slant_std = c_additional_std
             )
         return model
 
     def _normalise_labels(self, thickness, intensity=None, slant=None, classes=None):
         ## gamma normalized dist
         thickness = (thickness - self.model["thickness_mu"]) / self.model["thickness_std"]
-        if self.data_name == "mnist-thickness-intensity":
+        if self.which_source == "source1":
             intensity = (intensity - self.model["intensity_mu"]) / self.model["intensity_std"]
             samples = np.concatenate([thickness, intensity], 1)
-        elif self.data_name == "mnist-thickness-slant":
+        elif self.which_source == "source2":
             slant = (slant - self.model["slant_mu"]) / self.model["slant_std"]
             samples = np.concatenate([thickness, slant], 1)
         if classes is not None:
@@ -617,39 +731,35 @@ class MorphoMNISTDataset_causal(ImageFolderDataset):
         labels = dict(labels)
         labels = [labels[fname.replace("\\", "/")] for fname in self._image_fnames] ## a dict
 
+        if self.which_source == "source1":
+            self.vars = ["thickness", "intensity"]
+        elif self.which_source == "source2":
+            self.vars = ["thickness", "slant"]
+        else:
+            raise ValueError(f"No such source {self.which_source}")
         new_labels = np.zeros(shape=(len(labels), 2+10), 
             dtype=np.float32) if self.include_numbers else np.zeros(shape=(len(labels), 2), dtype=np.float32)
-        if self.data_name == "mnist-thickness-intensity":
-            for i in range(len(labels)):
-                thickness = labels[i]["thickness"]
-                intensity = labels[i]["intensity"]
-                if self.include_numbers:
-                    c = F.one_hot(torch.tensor(labels[i]["label"], dtype=torch.long), num_classes=10)
-                    ll = np.concatenate([np.array([thickness, intensity]), c.cpu().detach().numpy()], axis=-1)
-                new_labels[i, :] = ll if self.include_numbers else np.array([thickness, intensity], dtype=np.float32)
-            self.model = self._get_mu_std(new_labels, self.data_name)
+        for num, l in enumerate(labels):
+            i = list(l[self.vars[0]].items())[0][0]
+            temp = [l[var][str(i)] for var in self.vars]
+            if self.include_numbers:
+                c = F.one_hot(torch.tensor(l["label"][str(i)], dtype=torch.long), num_classes=10)
+                ll = np.concatenate([np.array(temp), c.cpu().detach().numpy()], axis=-1)
+            new_labels[i, :] = ll if self.include_numbers else temp
+        self.model = self._get_mu_std(new_labels, self.which_source)
+        if self.which_source == "source1":
             self.new_labels_norm = self._normalise_labels(
                 thickness=new_labels[:, 0].reshape(-1, 1),
                 intensity=new_labels[:, 1].reshape(-1, 1),
                 slant=None,
                 classes=new_labels[:, 2:] if self.include_numbers else None)
-
-        elif self.data_name == "mnist-thickness-slant":
-            for i in range(len(labels)):
-                thickness = labels[i]["thickness"]
-                slant = labels[i]["slant"]
-                if self.include_numbers:
-                    c = F.one_hot(torch.tensor(labels[i]["label"], dtype=torch.long), num_classes=10)
-                    ll = np.concatenate([np.array([thickness, slant]), c.cpu().detach().numpy()], axis=-1)
-                new_labels[i, :] = ll if self.include_numbers else np.array([thickness, slant], dtype=np.float32)
-            self.model = self._get_mu_std(new_labels, self.data_name)
+        elif self.which_source == "source2":
             self.new_labels_norm = self._normalise_labels(
                 thickness=new_labels[:, 0].reshape(-1, 1),
                 intensity=None,
                 slant=new_labels[:, 1].reshape(-1, 1),
                 classes=new_labels[:, 2:] if self.include_numbers else None)
-        else:
-            raise ValueError(f"No such dataset {self.data_name}")
+
         return new_labels
     
     def get_norm_label(self, idx):
@@ -659,7 +769,6 @@ class MorphoMNISTDataset_causal(ImageFolderDataset):
             onehot[label] = 1
             label = onehot
         return label.copy()
-
 #----------------------------------------------------------------------------
 class UKBiobankRetinalDataset2D(ImageFolderDataset):
     def __init__(
@@ -886,4 +995,3 @@ class UKBiobankRetinalDataset2D_single(ImageFolderDataset):
             onehot[label] = 1
             label = onehot
         return label.copy()
-    

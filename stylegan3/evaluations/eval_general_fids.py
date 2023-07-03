@@ -10,7 +10,9 @@ import click
 ### -------------------
 from eval_utils import calc_fid_score
 from utils import load_generator, generate_images
-from eval_dataset import MorphoMNISTDataset_causal, UKBiobankMRIDataset2D, UKBiobankMRIDataset2D_single, ConcatDataset
+from eval_dataset import ConcatDataset
+from eval_dataset import MorphoMNISTDataset_causal, MorphoMNISTDataset_causal_single
+from eval_dataset import UKBiobankMRIDataset2D, UKBiobankMRIDataset2D_single
 from eval_dataset import UKBiobankRetinalDataset2D, UKBiobankRetinalDataset2D_single
 from latent_dist_morphomnist import MorphoSampler
 
@@ -30,8 +32,9 @@ def parse_vec2(s: Union[str, Tuple[float, float]]) -> Tuple[float, float]:
 
 @click.command()
 @click.option('--network', 'metric_jsonl', help='Metric jsonl file for one training', required=True)
-@click.option('--dataset', 'dataset', type=click.Choice(['mnist-thickness-intensity', 'mnist-thickness-slant', 
-                                                         'ukb', 'retinal', None]),
+@click.option('--dataset', 'dataset', type=click.Choice(['mnist-thickness-intensity', 'mnist-thickness-slant',
+                                                         'mnist-thickness-intensity-slant', 'ukb', 
+                                                         'retinal', None]),
               default=None, show_default=True)
 @click.option('--data-path1', 'data_path1', type=str, help='Path to the data source 1', required=True)
 @click.option('--data-path2', 'data_path2', type=str, help='Path to the data source 2', default=None, required=False)
@@ -63,19 +66,21 @@ def run_general_fid(
     if source_gan == "multi":
         assert data_path2 is not None
     os.makedirs(outdir, exist_ok=True)
-    config_dict = {"gen": metric_jsonl, "dataset": dataset, "data_path1": data_path1, "data_path2": data_path2,
-                    "source_gan": source_gan, "num_samples": num_samples, "out_dir": outdir}
+    config_dict = {"gen": metric_jsonl, "dataset": dataset, 
+                "data_path1": data_path1, "data_path2": data_path2,
+                "source_gan": source_gan, "num_samples": num_samples, "out_dir": outdir}
     with open(os.path.join(outdir, "config.json"), "w") as f:
         json.dump(config_dict, f)
-    if dataset in ["mnist-thickness-intensity", "mnist-thickness-slant"]:
-        if data_path2 is not None:
-            dataset2 = "mnist-thickness-slant" if dataset == "mnist-thickness-intensity" else "mnist-thickness-intensity"
+    if dataset in ["mnist-thickness-intensity", "mnist-thickness-slant", "mnist-thickness-intensity-slant"]:
+        if data_path2 is not None and source_gan == "multi":
+            # dataset2 = "mnist-thickness-slant" if dataset == "mnist-thickness-intensity" else "mnist-thickness-intensity"
+            dataset2 = "mnist-thickness-intensity-slant" if dataset == "mnist-thickness-intensity-slant" else "mnist-thickness-intensity"
             ## seed is as the common convariate (c1)
             ds1 = MorphoMNISTDataset_causal(data_name=dataset,
-                                        path=data_path1,
-                                        mode="test",
-                                        use_labels=True,
-                                        xflip=False)
+                                            path=data_path1,
+                                            mode="test",
+                                            use_labels=True,
+                                            xflip=False)
             ds2 = MorphoMNISTDataset_causal(data_name=dataset2,
                                             path=data_path2,
                                             mode="test",
@@ -84,20 +89,34 @@ def run_general_fid(
             concat_ds = ConcatDataset(ds1, ds2)
             labels = ds1._load_raw_labels()
             labels2 = ds2._load_raw_labels()
-            if source_gan == "multi":
-                ### samplers 
-                l_sampler1 = MorphoSampler(dataset_name=dataset,
-                                            label_path=data_path1,
-                                            use_groud_truth=True)
-                l_sampler2 = MorphoSampler(dataset_name=dataset2,
-                                            label_path=data_path2,
-                                            use_groud_truth=True)
+            ### samplers 
+            l_sampler1 = MorphoSampler(dataset_name=dataset, label_path=data_path1,
+                                        use_groud_truth=False, which_source="source1")
+            l_sampler2 = MorphoSampler(dataset_name=dataset2, label_path=data_path2,
+                                        use_groud_truth=False, which_source="source2")
+        elif data_path2 is not None and source_gan == "single":
+            # dataset2 = "mnist-thickness-slant" if dataset == "mnist-thickness-intensity" else "mnist-thickness-intensity"
+            dataset2 = "mnist-thickness-intensity-slant" if dataset == "mnist-thickness-intensity-slant" else "mnist-thickness-intensity"
+            ## seed is as the common convariate (c1)
+            ds1 = MorphoMNISTDataset_causal_single(data_name=dataset,
+                                            path=data_path1,
+                                            mode="test",
+                                            use_labels=True,
+                                            xflip=False)
+            ds2 = MorphoMNISTDataset_causal_single(data_name=dataset2,
+                                            path=data_path2,
+                                            mode="test",
+                                            use_labels=True,
+                                            xflip=False)
+            concat_ds = ConcatDataset(ds1, ds2)
+            labels = ds1._load_raw_labels()
+            labels2 = ds2._load_raw_labels()
         else:
-            ds1 = MorphoMNISTDataset_causal(data_name=dataset,
-                                        path=data_path1,
-                                        mode="test",
-                                        use_labels=True,
-                                        xflip=False)
+            ds1 = MorphoMNISTDataset_causal_single(data_name=dataset,
+                                            path=data_path1,
+                                            mode="test",
+                                            use_labels=True,
+                                            xflip=False)
             labels = ds1._load_raw_labels()
     elif dataset == "ukb":
         if data_path2 is not None and source_gan == "multi":
@@ -197,28 +216,13 @@ def run_general_fid(
                 batch_labels = []
                 z = torch.randn(batch_gen * 2, Gen.z_dim).to(device)
                 for _i in range(batch_gen):
-                    if dataset not in ["ukb", "retinal"]: ## (c1, c2) ## morpho
-                        ## need to estimate c3
-                        source_c1, source_c2 = concat_ds[np.random.randint(len(concat_ds))]
-                        label1, label2 = source_c1[1], source_c2[1]
-                        label1_norm = ds1._normalise_labels(thickness=label1[0].reshape(-1, 1), 
-                                                            intensity=label1[1].reshape(-1, 1))
-                        _, slant = l_sampler2.sampling_slant(label1[0].reshape(-1, 1),
-                                                          normalize=True, model_=ds2.model)
-                        label2_norm = ds2._normalise_labels(thickness=label2[0].reshape(-1, 1),
-                                                            slant=label2[1].reshape(-1, 1))
-                        _, intensity = l_sampler1.sampling_intensity(label2[0].reshape(-1, 1),
-                                                                normalize=True, model_=ds1.model)
-                        label1_norm = np.concatenate([label1_norm, slant.reshape(-1, 1)], axis=1)
-                        label2_norm = np.concatenate([label2_norm[:, 0].reshape(-1, 1), intensity.reshape(-1, 1),
-                                                      label2_norm[:, 1].reshape(-1, 1)], axis=1)
-                    else: ## (c1, c2, c3)
-                        source_c1, source_c2 = concat_ds[np.random.randint(len(concat_ds))]
-                        label1, label2 = source_c1[1], source_c2[1]
-                        label1_norm = ds1._normalise_labels(label1[0].reshape(-1, 1), label1[1].reshape(-1, 1), 
-                                                            label1[2].reshape(-1, 1))
-                        label2_norm = ds2._normalise_labels(label2[0].reshape(-1, 1), label2[1].reshape(-1, 1),
-                                                            label2[2].reshape(-1, 1))
+                    ## (c1, c2, c3)
+                    source_c1, source_c2 = concat_ds[np.random.randint(len(concat_ds))]
+                    label1, label2 = source_c1[1], source_c2[1]
+                    label1_norm = ds1._normalise_labels(label1[0].reshape(-1, 1), label1[1].reshape(-1, 1),
+                                                        label1[2].reshape(-1, 1))
+                    label2_norm = ds2._normalise_labels(label2[0].reshape(-1, 1), label2[1].reshape(-1, 1),
+                                                        label2[2].reshape(-1, 1))
                     label1_norm = torch.from_numpy(label1_norm).to(device)
                     label2_norm = torch.from_numpy(label2_norm).to(device)
                     l = torch.cat([label1_norm, label2_norm], dim=0)
