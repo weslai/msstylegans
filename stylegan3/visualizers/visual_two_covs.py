@@ -44,9 +44,11 @@ def generate_labels_two_covs(
     
 def plot_two_covs_images(
     images,
-    c2, 
+    c2,
     c3,
     dataset_name: str,
+    c2_name = None,
+    c3_name = None,
     save_path: str = None,
     single_source: bool = True
 ):
@@ -61,13 +63,6 @@ def plot_two_covs_images(
             c2_name = "age"
             c3_name = "systolic bp" if dataset_name.split("_")[-1] == "source1" else "cylindrical power"
             dataset_name = "retinal"
-    else:
-        if dataset_name in ["mnist-thickness-intensity", "mnist-thickness-slant", "mnist-thickness-intensity-slant"]:
-            c2_name, c3_name = "intensity", "slant"
-        elif dataset_name == "ukb":
-            c2_name, c3_name = "brain", "ventricles"
-        elif dataset_name == "retinal":
-            c2_name, c3_name = "systolic bp", "cylindrical power"
     images = images.cpu().detach().numpy()
     ncols = np.sqrt(images.shape[0]).astype(int)
     nrows = ncols

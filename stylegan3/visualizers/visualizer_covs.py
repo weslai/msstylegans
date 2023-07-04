@@ -1,9 +1,8 @@
 ### This file is used to run the visualizer for changing two covariates
 ### c1 is fixed, c2 and c3 are changed
-import os, sys
+import os
 import re
 import numpy as np
-import pandas as pd
 import torch
 import click
 from typing import List, Tuple, Union
@@ -56,11 +55,21 @@ def make_transform(translate: Tuple[float,float], angle: float):
     return m
 
 #----------------------------------------------------------------------------
+def get_covs(dataset):
+    if dataset == "retinal":
+        COVS = {"c1": "age", "c2": "diastolic bp", "c3": "spherical power left"}
+    elif dataset == "ukb":
+        pass
+    elif dataset == "mnist-thickness-intensity-slant":
+        COVS = {"c1": "thickness", "c2": "intensity", "c3": "slant"}
+    return COVS
+#----------------------------------------------------------------------------
 
 @click.command()
 @click.option('--network', 'metric_jsonl', help='Metric jsonl file for one training', required=True)
 # @click.option('--label-mode', 'label_mode', type=click.Choice(['test', 'sampling']), 
 #               default='test', show_default=True)
+@click.option('--group-by', 'group_by', type=str, default="c1", show_default=True)
 @click.option('--dataset', 'dataset', type=click.Choice(['mnist-thickness-intensity', 'mnist-thickness-slant', 
                                                          'mnist-thickness-intensity-slant', 'ukb', 
                                                          'retinal', None]),
@@ -78,6 +87,7 @@ def make_transform(translate: Tuple[float,float], angle: float):
 @click.option('--outdir', help='Where to save the output images', type=str, required=True, metavar='DIR')
 def run_visualizer_two_covs(
     metric_jsonl: str,
+    group_by: str,
     dataset: str,
     data_path1: str,
     data_path2: str,
@@ -153,12 +163,24 @@ def run_visualizer_two_covs(
     labels1_min, labels1_max = labels1.min(axis=0), labels1.max(axis=0)
     labels2 = ds2._load_raw_labels() ## (c1, c3)
     labels2_min, labels2_max = labels2.min(axis=0), labels2.max(axis=0)
-    
     c1_min, c1_max = min(labels1_min[0], labels2_min[0]), max(labels1_max[0], labels2_max[0]) ## c1 fixed
-    c1 = np.mean([c1_min, c1_max])
-    c1_range = np.array([c1] * num_labels).reshape(-1, 1)
-    c2_range = np.linspace(labels1_min[1]-2, labels1_max[1]+2, num=num_labels).reshape(-1, 1)
-    c3_range = np.linspace(labels2_min[1]-2, labels2_max[1]+2, num=num_labels).reshape(-1, 1)
+    if group_by == "c1":
+        c1 = np.mean([c1_min, c1_max])
+        c1_range = np.array([c1] * num_labels).reshape(-1, 1)
+        c2_range = np.linspace(labels1_min[1]-2, labels1_max[1]+2, num=num_labels).reshape(-1, 1)
+        c3_range = np.linspace(labels2_min[1]-2, labels2_max[1]+2, num=num_labels).reshape(-1, 1)
+    elif group_by == "c2":
+        c2_min, c2_max = labels1_min[1], labels1_max[1]
+        c2 = np.mean([c2_min, c2_max])
+        c1_range = np.linspace(c1_min-2, c1_max+2, num=num_labels).reshape(-1, 1)
+        c2_range = np.array([c2] * num_labels).reshape(-1, 1)
+        c3_range = np.linspace(labels2_min[1]-2, labels2_max[1]+2, num=num_labels).reshape(-1, 1)
+    elif group_by == "c3":
+        c3_min, c3_max = labels2_min[1], labels2_max[1]
+        c3 = np.mean([c3_min, c3_max])
+        c1_range = np.linspace(c1_min-2, c1_max+2, num=num_labels).reshape(-1, 1)
+        c2_range = np.linspace(labels1_min[1]-2, labels1_max[1]+2, num=num_labels).reshape(-1, 1)
+        c3_range = np.array([c3] * num_labels).reshape(-1, 1)
     c = torch.tensor(np.concatenate([c1_range, c2_range, c3_range], axis=1)).to(device)
     
     # Generate images.
@@ -172,9 +194,25 @@ def run_visualizer_two_covs(
                 img = generate_images(Gen, z, l, truncation_psi, noise_mode, translate, rotate)
                 gen_images.append(img)
         imgs = torch.cat(gen_images, dim=0)
-        plot_two_covs_images(imgs, c2_range, c3_range, dataset_name=dataset, 
-                             save_path=f'{outdir}/seed{seed:04d}.png',
-                             single_source=False)
+        if group_by == "c1":
+            y_range = c2_range
+            y_name = get_covs(dataset)["c2"]
+            x_range = c3_range
+            x_name = get_covs(dataset)["c3"]
+        elif group_by == "c2":
+            y_range = c1_range
+            y_name = get_covs(dataset)["c1"]
+            x_range = c3_range
+            x_name = get_covs(dataset)["c3"]
+        elif group_by == "c3":
+            y_range = c1_range
+            y_name = get_covs(dataset)["c1"]
+            x_range = c2_range
+            y_name = get_covs(dataset)["c2"]
+        plot_two_covs_images(imgs, y_range, x_range, dataset_name=dataset,
+                             c2_name=y_name, c3_name=x_name,
+                            save_path=f'{outdir}/seed{seed:04d}.png',
+                            single_source=False)
 
 ## --- run ---
 if __name__ == "__main__":
