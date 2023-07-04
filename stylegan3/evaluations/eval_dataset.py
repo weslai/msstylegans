@@ -572,8 +572,7 @@ class MorphoMNISTDataset_causal(ImageFolderDataset):
 
             new_labels = np.zeros(shape=(len(trainlabels), 3), dtype=np.float32)
             for num, l in enumerate(trainlabels):
-                i = list(l[self.vars[0]].items())[0][0]
-                temp = [l[var][str(i)] for var in self.vars]
+                temp = [l[var] for var in self.vars]
                 new_labels[num, :] = temp
             labels = new_labels
         model.update(
@@ -613,10 +612,9 @@ class MorphoMNISTDataset_causal(ImageFolderDataset):
         new_labels = np.zeros(shape=(len(labels), 3+10), 
             dtype=np.float32) if self.include_numbers else np.zeros(shape=(len(labels), 3), dtype=np.float32)
         for num, l in enumerate(labels):
-            i = list(l[self.vars[0]].items())[0][0]
-            temp = [l[var][str(i)] for var in self.vars]
+            temp = [l[var] for var in self.vars]
             if self.include_numbers:
-                c = F.one_hot(torch.tensor(labels[i]["label"], dtype=torch.long), num_classes=10)
+                c = F.one_hot(torch.tensor(labels["label"], dtype=torch.long), num_classes=10)
                 ll = np.concatenate([np.array(temp), c.cpu().detach().numpy()], axis=-1)
             new_labels[num, :] = ll if self.include_numbers else temp
         self.model = self._get_mu_std(new_labels)
@@ -682,8 +680,7 @@ class MorphoMNISTDataset_causal_single(ImageFolderDataset):
 
             new_labels = np.zeros(shape=(len(trainlabels), 2), dtype=np.float32)
             for num, l in enumerate(trainlabels):
-                i = list(l[self.vars[0]].items())[0][0]
-                temp = [l[var][str(i)] for var in self.vars]
+                temp = [l[var] for var in self.vars]
                 new_labels[num, :] = temp
             labels = new_labels
 
@@ -740,12 +737,11 @@ class MorphoMNISTDataset_causal_single(ImageFolderDataset):
         new_labels = np.zeros(shape=(len(labels), 2+10), 
             dtype=np.float32) if self.include_numbers else np.zeros(shape=(len(labels), 2), dtype=np.float32)
         for num, l in enumerate(labels):
-            i = list(l[self.vars[0]].items())[0][0]
-            temp = [l[var][str(i)] for var in self.vars]
+            temp = [l[var] for var in self.vars]
             if self.include_numbers:
-                c = F.one_hot(torch.tensor(l["label"][str(i)], dtype=torch.long), num_classes=10)
+                c = F.one_hot(torch.tensor(l["label"], dtype=torch.long), num_classes=10)
                 ll = np.concatenate([np.array(temp), c.cpu().detach().numpy()], axis=-1)
-            new_labels[i, :] = ll if self.include_numbers else temp
+            new_labels[num, :] = ll if self.include_numbers else temp
         self.model = self._get_mu_std(new_labels, self.which_source)
         if self.which_source == "source1":
             self.new_labels_norm = self._normalise_labels(

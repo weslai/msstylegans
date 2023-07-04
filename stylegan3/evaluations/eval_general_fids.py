@@ -89,11 +89,6 @@ def run_general_fid(
             concat_ds = ConcatDataset(ds1, ds2)
             labels = ds1._load_raw_labels()
             labels2 = ds2._load_raw_labels()
-            ### samplers 
-            l_sampler1 = MorphoSampler(dataset_name=dataset, label_path=data_path1,
-                                        use_groud_truth=False, which_source="source1")
-            l_sampler2 = MorphoSampler(dataset_name=dataset2, label_path=data_path2,
-                                        use_groud_truth=False, which_source="source2")
         elif data_path2 is not None and source_gan == "single":
             # dataset2 = "mnist-thickness-slant" if dataset == "mnist-thickness-intensity" else "mnist-thickness-intensity"
             dataset2 = "mnist-thickness-intensity-slant" if dataset == "mnist-thickness-intensity-slant" else "mnist-thickness-intensity"

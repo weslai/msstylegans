@@ -153,7 +153,8 @@ def run_stratified_fid(
                 idxs2 = np.where((labels2[:,0] >= cur_c1[0]) & (labels2[:,0] < cur_c1[1]) & \
                                 (labels2[:,1] >= cur_c2[0]) & (labels2[:,1] < cur_c2[1]) & \
                                 (labels2[:,2] >= cur_c3[0]) & (labels2[:,2] < cur_c3[1]))[0]
-                if len(idxs1) + len(idxs2) > 10:
+                num_real = len(idxs1) + len(idxs2)
+                if len(idxs1) + len(idxs2) != 0:
                     for idx in idxs1:
                         real_imgs.append(torch.tensor(ds1[idx][0]))
                     for idx in idxs2:
@@ -163,37 +164,38 @@ def run_stratified_fid(
                     elif dataset == "retinal":
                         real_imgs = torch.stack(real_imgs, dim=0).repeat([1,1,1,1]).to(device)
                     ## get samples from GANs
-                    for _ in range(num_samples // batch_gen):
-                        z = torch.randn(batch_gen, Gen.z_dim).to(device)
-                        if source_gan == "multi":
-                            source1_c = [ds1.get_norm_label(idx) for idx in np.random.choice(idxs1, batch_gen//2)]
-                            source2_c = [ds2.get_norm_label(idx) for idx in np.random.choice(idxs2, batch_gen//2)]
-                            all_c = source1_c + source2_c
-                        else: ## single source
-                            all_c = [ds_gen.get_norm_label(idx) for idx in np.random.choice(idxs1, batch_gen)]
-                        l = torch.from_numpy(np.stack(all_c, axis=0)).to(device)
-                        ### Randomized latent codes
-                        # c1 = torch.tensor(np.random.uniform(cur_c1[0], cur_c1[1], size=(batch_gen, 1)))
-                        # c1 = (c1 - ds1.model["age_mu"]) / ds1.model["age_std"]
-                        # c2 = torch.tensor(np.random.uniform(cur_c2[0], cur_c2[1], size=(batch_gen, 1)))
-                        # c2 = (c2 - ds1.model["brain_mu"]) / ds1.model["brain_std"]
-                        # c3 = torch.tensor(np.random.uniform(cur_c3[0], cur_c3[1], size=(batch_gen, 1)))
-                        # c3 = (c3 - ds2.model["ventricle_mu"]) / ds2.model["ventricle_std"]
-                        # l = torch.cat([c1, c2, c3], dim=1).to(device)
-                        batch_imgs = generate_images(Gen, z, l, truncation_psi, noise_mode, translate, rotate).permute(0,3,1,2)
-                        gen_imgs.append(batch_imgs)
-                    if dataset in ["ukb", "mnist-thickness-intensity-slant"]:
-                        gen_imgs = torch.cat(gen_imgs, dim=0).repeat([1,3,1,1]).to(device)## (batch_size, channel (3), pixel, pixel)
-                    elif dataset == "retinal":
-                        gen_imgs = torch.cat(gen_imgs, dim=0).repeat([1,1,1,1]).to(device)
-                    ### within strata, calculate FID
-                    fid_score = calc_fid_score(real_imgs, gen_imgs, batch_size=64)
-                    print(f"strata: {cur_c1}, {cur_c2}, {cur_c3}, FID: {fid_score}")
-                    ### save the evaluation analysis to a json file
-                    scores.append(np.array([cur_c1[0], cur_c1[1], cur_c2[0], cur_c2[1],
-                                cur_c3[0], cur_c3[1], fid_score.cpu().detach().numpy()]))
+                    if (source_gan == "single" and len(idxs1) != 0) or (source_gan == "multi"):
+                        for _ in range(num_samples // batch_gen):
+                            z = torch.randn(batch_gen, Gen.z_dim).to(device)
+                            if source_gan == "multi":
+                                source1_c = [ds1.get_norm_label(idx) for idx in np.random.choice(idxs1, batch_gen//2)] if len(idxs1) != 0 else []
+                                source2_c = [ds2.get_norm_label(idx) for idx in np.random.choice(idxs2, batch_gen//2)] if len(idxs2) != 0 else []
+                                all_c = source1_c + source2_c
+                            else: ## single source
+                                all_c = [ds_gen.get_norm_label(idx) for idx in np.random.choice(idxs1, batch_gen)]
+                            l = torch.from_numpy(np.stack(all_c, axis=0)).to(device)
+                            ### Randomized latent codes
+                            # c1 = torch.tensor(np.random.uniform(cur_c1[0], cur_c1[1], size=(batch_gen, 1)))
+                            # c1 = (c1 - ds1.model["age_mu"]) / ds1.model["age_std"]
+                            # c2 = torch.tensor(np.random.uniform(cur_c2[0], cur_c2[1], size=(batch_gen, 1)))
+                            # c2 = (c2 - ds1.model["brain_mu"]) / ds1.model["brain_std"]
+                            # c3 = torch.tensor(np.random.uniform(cur_c3[0], cur_c3[1], size=(batch_gen, 1)))
+                            # c3 = (c3 - ds2.model["ventricle_mu"]) / ds2.model["ventricle_std"]
+                            # l = torch.cat([c1, c2, c3], dim=1).to(device)
+                            batch_imgs = generate_images(Gen, z, l, truncation_psi, noise_mode, translate, rotate).permute(0,3,1,2)
+                            gen_imgs.append(batch_imgs)
+                        if dataset in ["ukb", "mnist-thickness-intensity-slant"]:
+                            gen_imgs = torch.cat(gen_imgs, dim=0).repeat([1,3,1,1]).to(device)## (batch_size, channel (3), pixel, pixel)
+                        elif dataset == "retinal":
+                            gen_imgs = torch.cat(gen_imgs, dim=0).repeat([1,1,1,1]).to(device)
+                        ### within strata, calculate FID
+                        fid_score = calc_fid_score(real_imgs, gen_imgs, batch_size=64)
+                        print(f"strata: {cur_c1}, {cur_c2}, {cur_c3}, FID: {fid_score}")
+                        ### save the evaluation analysis to a json file
+                        scores.append(np.array([num_real, cur_c1[0], cur_c1[1], cur_c2[0], cur_c2[1],
+                                    cur_c3[0], cur_c3[1], fid_score.cpu().detach().numpy()]))
     scores = np.stack(scores, axis=0)
-    scores_df = pd.DataFrame(scores, columns=["c1_min", "c1_max", "c2_min", "c2_max", "c3_min", "c3_max", "fid_score"])
+    scores_df = pd.DataFrame(scores, columns=["num_samples", "c1_min", "c1_max", "c2_min", "c2_max", "c3_min", "c3_max", "fid_score"])
     scores_df.to_csv(os.path.join(outdir, "ms_stratified_fid.csv"), index=False)
 
 if __name__ == "__main__":
