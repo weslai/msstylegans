@@ -29,7 +29,8 @@ def parse_vec2(s: Union[str, Tuple[float, float]]) -> Tuple[float, float]:
 # --------------------------------------------------------------------------------------
 
 @click.command()
-@click.option('--network', 'metric_jsonl', help='Metric jsonl file for one training', required=True)
+@click.option('--network_specific', 'network_pkl', help='Network pickle filepath', default=None, required=False)
+@click.option('--network', 'metric_jsonl', help='Metric jsonl file for one training', default=None, required=False)
 @click.option('--dataset', 'dataset', type=click.Choice(['mnist-thickness-intensity-slant', 'ukb',
                                                          'retinal', None]),
               default=None, show_default=True)
@@ -48,6 +49,7 @@ def parse_vec2(s: Union[str, Tuple[float, float]]) -> Tuple[float, float]:
 ### define strata with histogram
 ## get datasets
 def run_stratified_fid(
+    network_pkl: str,
     metric_jsonl: str,
     dataset: str,
     data_path1: str,
@@ -60,10 +62,16 @@ def run_stratified_fid(
     rotate: float,
     outdir: str
 ):
+    if network_pkl is not None:
+        assert metric_jsonl is None
+    else:
+        assert metric_jsonl is not None
     os.makedirs(outdir, exist_ok=True)
-    config_dict = {"gen": metric_jsonl, "dataset": dataset, "data_path1": data_path1, "data_path2": data_path2,
-                    "num_samples": num_samples, "out_dir": outdir}
-    with open(os.path.join(outdir, "config.json"), "w") as f:
+    config_dict = {
+        "gen_specific": network_pkl,
+        "gen": metric_jsonl, "dataset": dataset, "data_path1": data_path1, "data_path2": data_path2,
+        "num_samples": num_samples, "out_dir": outdir}
+    with open(os.path.join(outdir, "stratifiedfid_config.json"), "w") as f:
         json.dump(config_dict, f)
     assert dataset == "ukb" or dataset == "retinal" or dataset == "mnist-thickness-intensity-slant"
     num_bins = 3
@@ -132,7 +140,7 @@ def run_stratified_fid(
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     batch_gen = 4
     Gen = load_generator(
-        network_pkl=None,
+        network_pkl=network_pkl,
         metric_jsonl=metric_jsonl,
         use_cuda=True
     )
@@ -154,7 +162,7 @@ def run_stratified_fid(
                                 (labels2[:,1] >= cur_c2[0]) & (labels2[:,1] < cur_c2[1]) & \
                                 (labels2[:,2] >= cur_c3[0]) & (labels2[:,2] < cur_c3[1]))[0]
                 num_real = len(idxs1) + len(idxs2)
-                if len(idxs1) + len(idxs2) != 0:
+                if len(idxs1) + len(idxs2) >= 5:
                     for idx in idxs1:
                         real_imgs.append(torch.tensor(ds1[idx][0]))
                     for idx in idxs2:
@@ -169,7 +177,10 @@ def run_stratified_fid(
                             z = torch.randn(batch_gen, Gen.z_dim).to(device)
                             if source_gan == "multi":
                                 source1_c = [ds1.get_norm_label(idx) for idx in np.random.choice(idxs1, batch_gen//2)] if len(idxs1) != 0 else []
-                                source2_c = [ds2.get_norm_label(idx) for idx in np.random.choice(idxs2, batch_gen//2)] if len(idxs2) != 0 else []
+                                if len(idxs1) == 0:
+                                    source2_c = [ds2.get_norm_label(idx) for idx in np.random.choice(idxs2, batch_gen)]
+                                else:
+                                    source2_c = [ds2.get_norm_label(idx) for idx in np.random.choice(idxs2, batch_gen//2)] if len(idxs2) != 0 else []
                                 all_c = source1_c + source2_c
                             else: ## single source
                                 all_c = [ds_gen.get_norm_label(idx) for idx in np.random.choice(idxs1, batch_gen)]
@@ -182,7 +193,7 @@ def run_stratified_fid(
                             # c3 = torch.tensor(np.random.uniform(cur_c3[0], cur_c3[1], size=(batch_gen, 1)))
                             # c3 = (c3 - ds2.model["ventricle_mu"]) / ds2.model["ventricle_std"]
                             # l = torch.cat([c1, c2, c3], dim=1).to(device)
-                            batch_imgs = generate_images(Gen, z, l, truncation_psi, noise_mode, translate, rotate).permute(0,3,1,2)
+                            batch_imgs = generate_images(Gen, z, l, truncation_psi, noise_mode, translate, rotate).permute(0,3,1,2).cpu().detach()
                             gen_imgs.append(batch_imgs)
                         if dataset in ["ukb", "mnist-thickness-intensity-slant"]:
                             gen_imgs = torch.cat(gen_imgs, dim=0).repeat([1,3,1,1]).to(device)## (batch_size, channel (3), pixel, pixel)

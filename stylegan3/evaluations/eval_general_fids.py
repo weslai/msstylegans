@@ -31,7 +31,8 @@ def parse_vec2(s: Union[str, Tuple[float, float]]) -> Tuple[float, float]:
 # --------------------------------------------------------------------------------------
 
 @click.command()
-@click.option('--network', 'metric_jsonl', help='Metric jsonl file for one training', required=True)
+@click.option('--network_specific', 'network_pkl', help='Network pickle filepath', default=None, required=False)
+@click.option('--network', 'metric_jsonl', help='Metric jsonl file for one training', default=None, required=False)
 @click.option('--dataset', 'dataset', type=click.Choice(['mnist-thickness-intensity', 'mnist-thickness-slant',
                                                          'mnist-thickness-intensity-slant', 'ukb', 
                                                          'retinal', None]),
@@ -51,6 +52,7 @@ def parse_vec2(s: Union[str, Tuple[float, float]]) -> Tuple[float, float]:
 ### define strata with histogram
 ## get datasets
 def run_general_fid(
+    network_pkl: str,
     metric_jsonl: str,
     dataset: str,
     data_path1: str,
@@ -63,13 +65,18 @@ def run_general_fid(
     rotate: float,
     outdir: str
 ):
+    if network_pkl is not None:
+        assert metric_jsonl is None
+    else:
+        assert metric_jsonl is not None
     if source_gan == "multi":
         assert data_path2 is not None
     os.makedirs(outdir, exist_ok=True)
-    config_dict = {"gen": metric_jsonl, "dataset": dataset, 
-                "data_path1": data_path1, "data_path2": data_path2,
-                "source_gan": source_gan, "num_samples": num_samples, "out_dir": outdir}
-    with open(os.path.join(outdir, "config.json"), "w") as f:
+    config_dict = {
+        "gen_specific": network_pkl, "gen": metric_jsonl, "dataset": dataset, 
+        "data_path1": data_path1, "data_path2": data_path2,
+        "source_gan": source_gan, "num_samples": num_samples, "out_dir": outdir}
+    with open(os.path.join(outdir, "generalfid_config.json"), "w") as f:
         json.dump(config_dict, f)
     if dataset in ["mnist-thickness-intensity", "mnist-thickness-slant", "mnist-thickness-intensity-slant"]:
         if data_path2 is not None and source_gan == "multi":
@@ -187,7 +194,7 @@ def run_general_fid(
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     batch_gen = 4
     Gen = load_generator(
-        network_pkl=None,
+        network_pkl=network_pkl,
         metric_jsonl=metric_jsonl,
         use_cuda=True
     )

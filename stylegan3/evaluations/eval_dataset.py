@@ -315,6 +315,7 @@ class UKBiobankMRIDataset2D(ImageFolderDataset):
             if s.startswith("source"):
                 self.which_source = s
                 break
+        self.log_volumes_source1, self.log_volumes_source2 = get_settings(data_name)
 
         super().__init__(data_name, self.mode, path, resolution, **super_kwargs)
     
@@ -351,19 +352,23 @@ class UKBiobankMRIDataset2D(ImageFolderDataset):
             age_std = np.std(labels[:, 0]),
             age_min = np.min(labels[:, 0]),
             age_max = np.max(labels[:, 0]),
-            brain_mu = np.mean(labels[:, 1]),
-            brain_std = np.std(labels[:, 1]),
-            ventricle_mu = np.mean(labels[:, 2]),
-            ventricle_std = np.std(labels[:, 2])
+            grey_matter_mu = np.mean(np.log(labels[:, 1])) if self.log_volumes_source1 else np.mean(labels[:, 1]),
+            grey_matter_std = np.std(np.log(labels[:, 1])) if self.log_volumes_source1 else np.std(labels[:, 1]),
+            ventricle_mu = np.mean(np.log(labels[:, 2])) if self.log_volumes_source2 else np.mean(labels[:, 2]),
+            ventricle_std = np.std(np.log(labels[:, 2])) if self.log_volumes_source2 else np.std(labels[:, 2]),
         )
         return model
 
-    def _normalise_labels(self, age, brain=None, ventricle=None):
+    def _normalise_labels(self, age, grey_matter=None, ventricle=None):
         ## zero mean normalisation
         age = (age - self.model["age_min"]) / (self.model["age_max"] - self.model["age_min"])
-        brain = (brain - self.model["brain_mu"]) / self.model["brain_std"]
+        if self.log_volumes_source1:
+            grey_matter = np.log(grey_matter)
+        grey_matter = (grey_matter - self.model["grey_matter_mu"]) / self.model["grey_matter_std"]
+        if self.log_volumes_source2:
+            ventricle = np.log(ventricle)
         ventricle = (ventricle - self.model["ventricle_mu"]) / self.model["ventricle_std"]
-        samples = np.concatenate([age, brain, ventricle], 1)
+        samples = np.concatenate([age, grey_matter, ventricle], 1)
         return samples
 
     def _load_raw_labels(self):
@@ -376,7 +381,7 @@ class UKBiobankMRIDataset2D(ImageFolderDataset):
             return None
         labels = dict(labels)
         labels = [labels[fname.replace("\\", "/")] for fname in self._image_fnames] ## a dict 
-        self.vars = ["Age", "brain", "ventricle"]
+        self.vars = ["age", "grey_matter", "ventricle"]
 
         new_labels = np.zeros(shape=(len(labels), 3), dtype=np.float32)
         for num, l in enumerate(labels):
@@ -386,7 +391,7 @@ class UKBiobankMRIDataset2D(ImageFolderDataset):
         self.model = self._get_mu_std(new_labels)
         self.new_labels_norm = self._normalise_labels(
             age=new_labels[:, 0].reshape(-1, 1),
-            brain=new_labels[:, 1].reshape(-1, 1),
+            grey_matter=new_labels[:, 1].reshape(-1, 1),
             ventricle=new_labels[:, 2].reshape(-1, 1)
         )
         return new_labels
@@ -418,6 +423,7 @@ class UKBiobankMRIDataset2D_single(ImageFolderDataset):
             if s.startswith("source"):
                 self.which_source = s
                 break
+        self.log_volumes = get_settings(data_name, self.which_source)
 
         super().__init__(data_name, self.mode, path, resolution, **super_kwargs)
     
@@ -455,12 +461,13 @@ class UKBiobankMRIDataset2D_single(ImageFolderDataset):
             age_min = np.min(labels[:, 0]),
             age_max = np.max(labels[:, 0])
         )
-        c_additional_mu = np.mean(labels[:, 1])
-        c_additional_std = np.std(labels[:, 1])
+        c_additional_mu = np.mean(np.log(labels[:, 1])) if self.log_volumes else np.mean(labels[:, 1])
+        c_additional_std = np.std(np.log(labels[:, 1])) if self.log_volumes else np.std(labels[:, 1])
+
         if which_source == "source1":
             model.update(
-                brain_mu = c_additional_mu,
-                brain_std = c_additional_std
+                grey_matter_mu = c_additional_mu,
+                grey_matter_std = c_additional_std
             )
         elif which_source == "source2":
             model.update(
@@ -469,13 +476,17 @@ class UKBiobankMRIDataset2D_single(ImageFolderDataset):
             )
         return model
 
-    def _normalise_labels(self, age, brain=None, ventricle=None):
+    def _normalise_labels(self, age, grey_matter=None, ventricle=None):
         ## zero mean normalisation
         age = (age - self.model["age_min"]) / (self.model["age_max"] - self.model["age_min"])
         if self.which_source == "source1":
-            brain = (brain - self.model["brain_mu"]) / self.model["brain_std"]
-            samples = np.concatenate([age, brain], 1)
+            if self.log_volumes:
+                grey_matter = np.log(grey_matter)
+            grey_matter = (grey_matter - self.model["grey_matter_mu"]) / self.model["grey_matter_std"]
+            samples = np.concatenate([age, grey_matter], 1)
         elif self.which_source == "source2":
+            if self.log_volumes:
+                ventricle = np.log(ventricle)
             ventricle = (ventricle - self.model["ventricle_mu"]) / self.model["ventricle_std"]
             samples = np.concatenate([age, ventricle], 1)
         return samples
@@ -492,9 +503,9 @@ class UKBiobankMRIDataset2D_single(ImageFolderDataset):
         labels = [labels[fname.replace("\\", "/")] for fname in self._image_fnames] ## a dict 
 
         if self.which_source == "source1":
-            self.vars = ["Age", "brain"]
+            self.vars = ["age", "grey_matter"]
         elif self.which_source == "source2":
-            self.vars = ["Age", "ventricle"]
+            self.vars = ["age", "ventricle"]
         else:
             raise ValueError(f"No such source {self.which_source}")
 
@@ -507,7 +518,7 @@ class UKBiobankMRIDataset2D_single(ImageFolderDataset):
         if self.which_source == "source1":
             self.new_labels_norm = self._normalise_labels(
                 age=new_labels[:, 0].reshape(-1, 1),
-                brain=new_labels[:, 1].reshape(-1, 1)
+                grey_matter=new_labels[:, 1].reshape(-1, 1)
             )
         elif self.which_source == "source2":
             self.new_labels_norm = self._normalise_labels(
@@ -784,7 +795,7 @@ class UKBiobankRetinalDataset2D(ImageFolderDataset):
             if s.startswith("source"):
                 self.which_source = s
                 break
-
+        self.log_volumes_source1, self.log_volumes_source2 = get_settings(data_name)
         super().__init__(data_name, self.mode, path, resolution, **super_kwargs)
     
     def _get_mu_std(self, labels=None):
@@ -820,19 +831,23 @@ class UKBiobankRetinalDataset2D(ImageFolderDataset):
             age_std = np.std(labels[:, 0]),
             age_min = np.min(labels[:, 0]),
             age_max = np.max(labels[:, 0]),
-            systolic_bp_mu = np.mean(labels[:, 1]),
-            systolic_bp_std = np.std(labels[:, 1]),
-            cylindrical_power_left_mu = np.mean(labels[:, 2]),
-            cylindrical_power_left_std = np.std(labels[:, 2])
+            diastolic_bp_mu = np.mean(np.log(labels[:, 1])) if self.log_volumes_source1 else np.mean(labels[:, 1]),
+            diastolic_bp_std = np.std(np.log(labels[:, 1])) if self.log_volumes_source1 else np.std(labels[:, 1]),
+            spherical_power_left_mu = np.mean(np.log(labels[:, 2] + 1e2)) if self.log_volumes_source2 else np.mean(labels[:, 2]),
+            spherical_power_left_std = np.std(np.log(labels[:, 2] + 1e2)) if self.log_volumes_source2 else np.std(labels[:, 2]),
         )
         return model
 
-    def _normalise_labels(self, age, systolic_bp=None, cylindrical_power_left=None):
+    def _normalise_labels(self, age, diastolic_bp=None, spherical_power_left=None):
         ## zero mean normalisation
         age = (age - self.model["age_min"]) / (self.model["age_max"] - self.model["age_min"])
-        bp = (systolic_bp - self.model["systolic_bp_mu"]) / self.model["systolic_bp_mu"]
-        cylindrical_power = (cylindrical_power_left - self.model["cylindrical_power_left_mu"]) / self.model["cylindrical_power_left_std"]
-        samples = np.concatenate([age, bp, cylindrical_power], 1)
+        if self.log_volumes_source1:
+            diastolic_bp = np.log(diastolic_bp)
+        bp = (diastolic_bp - self.model["diastolic_bp_mu"]) / self.model["diastolic_bp_std"]
+        if self.log_volumes_source2:
+            spherical_power_left = np.log(spherical_power_left + 1e2)
+        spherical_power_left = (spherical_power_left - self.model["spherical_power_left_mu"]) / self.model["spherical_power_left_std"]
+        samples = np.concatenate([age, bp, spherical_power_left], 1)
         return samples
 
     def _load_raw_labels(self):
@@ -845,7 +860,7 @@ class UKBiobankRetinalDataset2D(ImageFolderDataset):
             return None
         labels = dict(labels)
         labels = [labels[fname.replace("\\", "/")] for fname in self._image_fnames] ## a dict 
-        self.vars = ["age", "systolic_bp", "cylindrical_power_left"]
+        self.vars = ["age", "diastolic_bp", "spherical_power_left"]
 
         new_labels = np.zeros(shape=(len(labels), 3), dtype=np.float32)
         for num, l in enumerate(labels):
@@ -855,8 +870,8 @@ class UKBiobankRetinalDataset2D(ImageFolderDataset):
         self.model = self._get_mu_std(new_labels)
         self.new_labels_norm = self._normalise_labels(
             age=new_labels[:, 0].reshape(-1, 1),
-            systolic_bp=new_labels[:, 1].reshape(-1, 1),
-            cylindrical_power_left=new_labels[:, 2].reshape(-1, 1)
+            diastolic_bp=new_labels[:, 1].reshape(-1, 1),
+            spherical_power_left=new_labels[:, 2].reshape(-1, 1)
         )
         return new_labels
     
@@ -886,6 +901,7 @@ class UKBiobankRetinalDataset2D_single(ImageFolderDataset):
             if s.startswith("source"):
                 self.which_source = s
                 break
+        self.log_volumes = get_settings(data_name, self.which_source)
 
         super().__init__(data_name, self.mode, path, resolution, **super_kwargs)
     
@@ -923,29 +939,37 @@ class UKBiobankRetinalDataset2D_single(ImageFolderDataset):
             age_min = np.min(labels[:, 0]),
             age_max = np.max(labels[:, 0]),
         )
-        c_additional_mu = np.mean(labels[:, 1])
-        c_additional_std = np.std(labels[:, 1])
+        if which_source == "source2":
+            c_additional_mu = np.mean(np.log(labels[:, 1] + 1e2)) if self.log_volumes else np.mean(labels[:, 1])
+            c_additional_std = np.std(np.log(labels[:, 1] + 1e2)) if self.log_volumes else np.std(labels[:, 1])
+        else:
+            c_additional_mu = np.mean(np.log(labels[:, 1])) if self.log_volumes else np.mean(labels[:, 1])
+            c_additional_std = np.std(np.log(labels[:, 1])) if self.log_volumes else np.std(labels[:, 1])
         if which_source == "source1":
             model.update(
-                systolic_bp_mu = c_additional_mu,
-                systolic_bp_std = c_additional_std,
+                diastolic_bp_mu = c_additional_mu,
+                diastolic_bp_std = c_additional_std,
             )
         elif which_source == "source2":
             model.update(
-                cylindrical_power_left_mu = c_additional_mu,
-                cylindrical_power_left_std = c_additional_std,
+                spherical_power_left_mu = c_additional_mu,
+                spherical_power_left_std = c_additional_std,
             )
         return model
 
-    def _normalise_labels(self, age, systolic_bp=None, cylindrical_power_left=None):
+    def _normalise_labels(self, age, diastolic_bp=None, spherical_power_left=None):
         ## zero mean normalisation
         age = (age - self.model["age_min"]) / (self.model["age_max"] - self.model["age_min"])
         if self.which_source == "source1":
-            bp = (systolic_bp - self.model["systolic_bp_mu"]) / self.model["systolic_bp_mu"]
+            if self.log_volumes:
+                diastolic_bp = np.log(diastolic_bp)
+            bp = (diastolic_bp - self.model["diastolic_bp_mu"]) / self.model["diastolic_bp_std"]
             samples = np.concatenate([age, bp], 1)
         elif self.which_source == "source2":
-            cylindrical_power = (cylindrical_power_left - self.model["cylindrical_power_left_mu"]) / self.model["cylindrical_power_left_std"]
-            samples = np.concatenate([age, cylindrical_power], 1)
+            if self.log_volumes:
+                spherical_power_left = np.log(spherical_power_left + 1e2)
+            spherical_power_left = (spherical_power_left - self.model["spherical_power_left_mu"]) / self.model["spherical_power_left_std"]
+            samples = np.concatenate([age, spherical_power_left], 1)
         return samples
 
     def _load_raw_labels(self):
@@ -960,9 +984,9 @@ class UKBiobankRetinalDataset2D_single(ImageFolderDataset):
         labels = [labels[fname.replace("\\", "/")] for fname in self._image_fnames] ## a dict
         
         if self.which_source == "source1":
-            self.vars = ["age", "systolic_bp"]
+            self.vars = ["age", "diastolic_bp"]
         elif self.which_source == "source2":
-            self.vars = ["age", "cylindrical_power_left"]
+            self.vars = ["age", "spherical_power_left"]
         else:
             raise ValueError(f"No such source {self.which_source}")
 
@@ -975,12 +999,12 @@ class UKBiobankRetinalDataset2D_single(ImageFolderDataset):
         if self.which_source == "source1":
             self.new_labels_norm = self._normalise_labels(
                 age=new_labels[:, 0].reshape(-1, 1),
-                systolic_bp=new_labels[:, 1].reshape(-1, 1)
+                diastolic_bp=new_labels[:, 1].reshape(-1, 1)
             )
         elif self.which_source == "source2":
             self.new_labels_norm = self._normalise_labels(
                 age=new_labels[:, 0].reshape(-1, 1),
-                cylindrical_power_left=new_labels[:, 1].reshape(-1, 1)
+                spherical_power_left=new_labels[:, 1].reshape(-1, 1)
             )
         return new_labels
     
@@ -991,3 +1015,26 @@ class UKBiobankRetinalDataset2D_single(ImageFolderDataset):
             onehot[label] = 1
             label = onehot
         return label.copy()
+    
+## get settings
+def get_settings(dataset: str, which_source: str = None):
+    if dataset == "ukb":
+        log_volumes = True
+    elif dataset == "adni":
+        log_volumes = False
+    elif dataset == "retinal":
+        if which_source == "source1":
+            log_volumes = True
+        elif which_source == "source2":
+            log_volumes = False
+    return log_volumes
+
+## get settings
+def get_settings(dataset: str):
+    if dataset == "ukb":
+        log_volumes_source1, log_volumes_source2 = True, True
+    elif dataset == "adni":
+        log_volumes_source1, log_volumes_source2 = False, False
+    elif dataset == "retinal":
+        log_volumes_source1, log_volumes_source2 = True, True
+    return log_volumes_source1, log_volumes_source2
