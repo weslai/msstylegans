@@ -726,7 +726,7 @@ def open_dataset(source, *, dataset_name: str = None,
                     "path", 
                     "age",  
                     "ventricle",
-                    "cortex_left" ## cortex left
+                    "grey_matter" ## cortex left
                 ]
             )
         ## retinal-fundus
