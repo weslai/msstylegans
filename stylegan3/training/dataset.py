@@ -283,53 +283,6 @@ class ConcatDataset(torch.utils.data.Dataset):
 
     def __len__(self):
         return min(len(d) for d in self.datasets)
-## --------------------------------------------------------------------------
-## for images and labels (causal graph)
-class OasisMRIDataset2D_Labels(ImageFolderDataset):
-    def __init__(
-        self, 
-        path,
-        resolution=None,
-        data_name: str = "oasis3",
-        **super_kwargs
-    ):
-        self.path = path
-
-        ## load the causal graph and model
-        self.sampler = CausalSampling(data_name)
-        self.causal_graph = self.sampler.get_graph()
-        self.causal_model = self.sampler.get_causal_model()
-        self.vars = self.sampler.vars
-
-        super().__init__(data_name, path, resolution, **super_kwargs)
-    
-    def _load_raw_labels(self):
-        fname = "dataset.json"
-        if fname not in self._all_fnames:
-            return None
-        with self._open_file(fname) as f:
-            labels = json.load(f)["labels"]
-        if labels is None:
-            return None
-        labels = dict(labels)
-        labels = [labels[fname.replace("\\", "/")] for fname in self._image_fnames] ## a dict 
-        
-
-        new_labels = np.zeros(shape=(len(labels), len(labels[0])), dtype=np.float32)
-        for i in range(len(labels)):
-            new_labels[i, :] = [labels[i][VAR] for VAR in self.vars]
-        new_labels = torch.tensor(new_labels, dtype=torch.float32)
-        new_labels_ts = preprocess_samples(
-            S = new_labels[:, 1].view(-1, 1),
-            A = new_labels[:, 0].view(-1, 1),
-            C = new_labels[:, 2].view(-1, 1),
-            V = new_labels[:, 3:],
-            model= self.causal_model,
-            dataset=self.data_name
-        )
-        new_labels = new_labels_ts.detach().numpy().astype(np.float32)
-
-        return new_labels ## return an array, each element is a dict {"mmse": ..., }
 #----------------------------------------------------------------------------
 ## images and labels (UKB with DAG graph (causal))
 class UKBiobankRetinalDataset(ImageFolderDataset):
@@ -350,19 +303,49 @@ class UKBiobankRetinalDataset(ImageFolderDataset):
             if s.startswith("source"):
                 self.which_source = s
                 break
-
+        self.log_volumes = get_settings(data_name, self.which_source)
         super().__init__(data_name, self.mode, path, resolution, **super_kwargs)
     
     def _get_mu_std(self, labels=None, which_source=None):
         model = dict()
+        if self.mode != "train":
+            assert self._path.endswith("valset/") or self._path.endswith("testset/")
+            if self.mode == "val":
+                self.train_path = os.path.join(self._path.split("valset")[0], "trainset/")
+            elif self.mode == "test":
+                self.train_path = os.path.join(self._path.split("testset")[0], "trainset/")
+            self._type = 'dir'
+            self.train_all_fnames = {os.path.relpath(os.path.join(root, fname), start=self.train_path) for root, _dirs, files in os.walk(self.train_path) for fname in files}
+            self.train_image_fnames = sorted(fname for fname in self.train_all_fnames if self._file_ext(fname) in PIL.Image.EXTENSION)
+            fname = "dataset.json"
+            if fname not in self.train_all_fnames:
+                return None
+            with open(os.path.join(self.train_path, fname), 'rb') as f:
+                trainlabels = json.load(f)["labels"]
+            if trainlabels is None:
+                return None
+            trainlabels = dict(trainlabels)
+            trainlabels = [trainlabels[fname.replace("\\", "/")] for fname in self.train_image_fnames] ## a dict
+
+            new_labels = np.zeros(shape=(len(trainlabels), 2), dtype=np.float32)
+            for num, l in enumerate(trainlabels):
+                i = list(l[self.vars[0]].items())[0][0]
+                temp = [l[var][str(i)] for var in self.vars]
+                new_labels[num, :] = temp
+            labels = new_labels
+        
         model.update(
             age_mu = np.mean(labels[:, 0]),
             age_std = np.std(labels[:, 0]),
             age_min = np.min(labels[:, 0]),
             age_max = np.max(labels[:, 0])
         )
-        c_additional_mu = np.mean(labels[:, 1])
-        c_additional_std = np.std(labels[:, 1])
+        if which_source == "source2":
+            c_additional_mu = np.mean(np.log(labels[:, 1] + 1e2)) if self.log_volumes else np.mean(labels[:, 1])
+            c_additional_std = np.std(np.log(labels[:, 1] + 1e2)) if self.log_volumes else np.std(labels[:, 1])
+        else:
+            c_additional_mu = np.mean(np.log(labels[:, 1])) if self.log_volumes else np.mean(labels[:, 1])
+            c_additional_std = np.std(np.log(labels[:, 1])) if self.log_volumes else np.std(labels[:, 1])
         if which_source == "source1":
             model.update(
                 diastolic_bp_mu = c_additional_mu,
@@ -379,9 +362,13 @@ class UKBiobankRetinalDataset(ImageFolderDataset):
         ## zero mean normalisation
         age = (age - self.model["age_min"]) / (self.model["age_max"] - self.model["age_min"])
         if self.which_source == "source1":
+            if self.log_volumes:
+                diastolic_bp = np.log(diastolic_bp)
             diastolic_bp = (diastolic_bp - self.model["diastolic_bp_mu"]) / self.model["diastolic_bp_std"]
             samples = np.concatenate([age, diastolic_bp], 1)
         elif self.which_source == "source2":
+            if self.log_volumes:
+                spherical_power_left = np.log(spherical_power_left + 1e2)
             spherical_power_left = (spherical_power_left - self.model["spherical_power_left_mu"]) / self.model["spherical_power_left_std"]
             samples = np.concatenate([age, spherical_power_left], 1)
         return samples
@@ -441,23 +428,49 @@ class UKBiobankMRIDataset2D(ImageFolderDataset):
             if s.startswith("source"):
                 self.which_source = s
                 break
+        self.log_volumes = get_settings(data_name, self.which_source)
 
         super().__init__(data_name, self.mode, path, resolution, **super_kwargs)
     
     def _get_mu_std(self, labels=None, which_source=None):
         model = dict()
+        if self.mode != "train":
+            assert self._path.endswith("valset/") or self._path.endswith("testset/")
+            if self.mode == "val":
+                self.train_path = os.path.join(self._path.split("valset")[0], "trainset/")
+            elif self.mode == "test":
+                self.train_path = os.path.join(self._path.split("testset")[0], "trainset/")
+            self._type = 'dir'
+            self.train_all_fnames = {os.path.relpath(os.path.join(root, fname), start=self.train_path) for root, _dirs, files in os.walk(self.train_path) for fname in files}
+            self.train_image_fnames = sorted(fname for fname in self.train_all_fnames if self._file_ext(fname) in ".gz")
+            fname = "dataset.json"
+            if fname not in self.train_all_fnames:
+                return None
+            with open(os.path.join(self.train_path, fname), 'rb') as f:
+                trainlabels = json.load(f)["labels"]
+            if trainlabels is None:
+                return None
+            trainlabels = dict(trainlabels)
+            trainlabels = [trainlabels[fname.replace("\\", "/")] for fname in self.train_image_fnames] ## a dict
+
+            new_labels = np.zeros(shape=(len(trainlabels), 2), dtype=np.float32)
+            for num, l in enumerate(trainlabels):
+                i = list(l[self.vars[0]].items())[0][0]
+                temp = [l[var][str(i)] for var in self.vars]
+                new_labels[num, :] = temp
+            labels = new_labels
         model.update(
             age_mu = np.mean(labels[:, 0]),
             age_std = np.std(labels[:, 0]),
             age_min = np.min(labels[:, 0]),
             age_max = np.max(labels[:, 0])
         )
-        c_additional_mu = np.mean(labels[:, 1])
-        c_additional_std = np.std(labels[:, 1])
+        c_additional_mu = np.mean(np.log(labels[:, 1])) if self.log_volumes else np.mean(labels[:, 1])
+        c_additional_std = np.std(np.log(labels[:, 1])) if self.log_volumes else np.std(labels[:, 1])
         if which_source == "source1":
             model.update(
-                cortex_left_mu = c_additional_mu,
-                cortex_left_std = c_additional_std
+                grey_matter_mu = c_additional_mu,
+                grey_matter_std = c_additional_std
             )
         elif which_source == "source2":
             model.update(
@@ -466,13 +479,17 @@ class UKBiobankMRIDataset2D(ImageFolderDataset):
             )
         return model
 
-    def _normalise_labels(self, age, cortex_left=None, ventricle=None):
+    def _normalise_labels(self, age, grey_matter=None, ventricle=None):
         ## zero mean normalisation
         age = (age - self.model["age_min"]) / (self.model["age_max"] - self.model["age_min"])
         if self.which_source == "source1":
-            cortex_left = (cortex_left - self.model["cortex_left_mu"]) / self.model["cortex_left_std"]
-            samples = np.concatenate([age, cortex_left], 1)
+            if self.log_volumes:
+                grey_matter = np.log(grey_matter)
+            grey_matter = (grey_matter - self.model["grey_matter_mu"]) / self.model["grey_matter_std"]
+            samples = np.concatenate([age, grey_matter], 1)
         elif self.which_source == "source2":
+            if self.log_volumes:
+                ventricle = np.log(ventricle)
             ventricle = (ventricle - self.model["ventricle_mu"]) / self.model["ventricle_std"]
             samples = np.concatenate([age, ventricle], 1)
         return samples
@@ -489,7 +506,7 @@ class UKBiobankMRIDataset2D(ImageFolderDataset):
         labels = [labels[fname.replace("\\", "/")] for fname in self._image_fnames] ## a dict 
 
         if self.which_source == "source1":
-            self.vars = ["age", "cortex_left"]
+            self.vars = ["age", "grey_matter"]
         elif self.which_source == "source2":
             self.vars = ["age", "ventricle"]
         else:
@@ -504,7 +521,7 @@ class UKBiobankMRIDataset2D(ImageFolderDataset):
         if self.which_source == "source1":
             new_labels = self._normalise_labels(
                 age=new_labels[:, 0].reshape(-1, 1),
-                cortex_left=new_labels[:, 1].reshape(-1, 1)
+                grey_matter=new_labels[:, 1].reshape(-1, 1)
             )
         elif self.which_source == "source2":
             new_labels = self._normalise_labels(
@@ -601,6 +618,31 @@ class MorphoMNISTDataset_causal(ImageFolderDataset):
 
     def _get_mu_std(self, labels=None, data_name=None):
         model = dict()
+        if self.mode != "train":
+            assert self._path.endswith("valset/") or self._path.endswith("testset/")
+            if self.mode == "val":
+                self.train_path = os.path.join(self._path.split("valset")[0], "trainset/")
+            elif self.mode == "test":
+                self.train_path = os.path.join(self._path.split("testset")[0], "trainset/")
+            self._type = 'dir'
+            self.train_all_fnames = {os.path.relpath(os.path.join(root, fname), start=self.train_path) for root, _dirs, files in os.walk(self.train_path) for fname in files}
+            PIL.Image.init()
+            self.train_image_fnames = sorted(fname for fname in self.train_all_fnames if self._file_ext(fname) in PIL.Image.EXTENSION)
+            fname = "dataset.json"
+            if fname not in self.train_all_fnames:
+                return None
+            with open(os.path.join(self.train_path, fname), 'rb') as f:
+                trainlabels = json.load(f)["labels"]
+            if trainlabels is None:
+                return None
+            trainlabels = dict(trainlabels)
+            trainlabels = [trainlabels[fname.replace("\\", "/")] for fname in self.train_image_fnames] ## a dict
+
+            new_labels = np.zeros(shape=(len(trainlabels), 2), dtype=np.float32)
+            for num, l in enumerate(trainlabels):
+                temp = [l[var] for var in self.vars]
+                new_labels[num, :] = temp
+            labels = new_labels
         model.update(
             thickness_mu = np.mean(labels[:, 0]),
             thickness_std = np.std(labels[:, 0])
@@ -642,6 +684,13 @@ class MorphoMNISTDataset_causal(ImageFolderDataset):
             return None
         labels = dict(labels)
         labels = [labels[fname.replace("\\", "/")] for fname in self._image_fnames] ## a dict
+        
+        if self.which_source == "source1":
+            self.vars = ["thickness", "intensity"]
+        elif self.which_source == "source2":
+            self.vars = ["thickness", "slant"]
+        else:
+            raise ValueError(f"No such source {self.which_source}")
 
         new_labels = np.zeros(shape=(len(labels), 2+10), 
             dtype=np.float32) if self.include_numbers else np.zeros(shape=(len(labels), 2), dtype=np.float32)
@@ -677,3 +726,16 @@ class MorphoMNISTDataset_causal(ImageFolderDataset):
         else:
             raise ValueError(f"No such dataset {self.data_name}")
         return new_labels
+    
+## get settings
+def get_settings(dataset: str, which_source: str = None):
+    if dataset == "ukb":
+        log_volumes = True
+    elif dataset == "adni":
+        log_volumes = False
+    elif dataset == "retinal":
+        if which_source == "source1":
+            log_volumes = True
+        elif which_source == "source2":
+            log_volumes = True
+    return log_volumes

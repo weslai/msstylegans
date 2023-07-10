@@ -208,6 +208,7 @@ def parse_comma_separated_list(s):
 @click.option('--without_volumes', help='Train conditional model without Volumes', metavar='BOOL', type=bool, default=False, show_default=True)
 @click.option('--mirror',       help='Enable dataset x-flips', metavar='BOOL',                  type=bool, default=False, show_default=True)
 @click.option('--aug',          help='Augmentation mode',                                       type=click.Choice(['noaug', 'ada', 'fixed']), default='noaug', show_default=True)
+@click.option('--exact_resume',help='Resume from given exact network pickle',                   type=bool, default=False, show_default=True)
 @click.option('--resume',       help='Resume from given network pickle', metavar='[PATH|URL]',  type=str)
 @click.option('--freezed',      help='Freeze first layers of D', metavar='INT',                 type=click.IntRange(min=0), default=0, show_default=True)
 @click.option('--data_scenario', help='data scenario', metavar='STR',                          type=click.Choice(["low", "high", "lowlow", "highlow"]), 
@@ -358,10 +359,13 @@ def main(**kwargs):
 
     # Resume.
     if opts.resume is not None:
-        k_path, fid_score, kidx = get_k_lowest_checkpoints(metric_jsonl=opts.resume, k=1)
-        print(f"Resume from {k_path[0]} with fid score {fid_score[0]}")
-        result_path = "/" + os.path.join(*opts.resume.split('/')[:-1])
-        c.resume_pkl = os.path.join(result_path, k_path[0])
+        if opts.exact_resume:
+            c.resume_pkl = opts.resume
+        else:    
+            k_path, fid_score, kidx = get_k_lowest_checkpoints(metric_jsonl=opts.resume, k=1)
+            print(f"Resume from {k_path[0]} with fid score {fid_score[0]}")
+            result_path = "/" + os.path.join(*opts.resume.split('/')[:-1])
+            c.resume_pkl = os.path.join(result_path, k_path[0])
         c.ada_kimg = 100 # Make ADA react faster at the beginning.
         c.ema_rampup = None # Disable EMA rampup.
         c.loss_kwargs.blur_init_sigma = 0 # Disable blur rampup.
