@@ -42,10 +42,10 @@ CCOVARIATE_CODING = {
     "white_matter": 8,
     "brain_volume_norm": 9,
     "brain_volume": 10,
-    "laterals_ventricles_left": 11,
-    "laterals_ventricles_right": 12,
-    "cortex_left": 13,
-    "cortex_right": 14,
+    "cortex_left": 11,
+    "laterals_ventricles_left": 12,
+    "cortex_right": 13,
+    "laterals_ventricles_right": 14,
 }
 NROWS = None
 
@@ -111,9 +111,11 @@ def csv_extract_columns(csv_file: str, columns: list, outfile: str):
                     ventricle = temp
                 elif col == 26552:
                     cortex_left = temp
-        col_list = [row.loc["path"], age, ventricle, cortex_left]
+                elif col == 25005:
+                    grey_matter = temp
+        col_list = [row.loc["path"], age, ventricle, grey_matter, cortex_left]
         all_col.append(col_list)
-    df = pd.DataFrame(all_col, columns=["path", "age", "ventricle", "cortex_left"])
+    df = pd.DataFrame(all_col, columns=["path", "age", "ventricle", "grey_matter", "cortex_left"])
     df.to_csv(outfile)
     return df
 
