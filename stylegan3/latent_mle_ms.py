@@ -16,6 +16,24 @@ from gmr.gmm import _safe_probability_density
 from sklearn.preprocessing import OneHotEncoder
 from scipy import stats
 
+## get settings
+def get_settings(dataset: str, which_source: str = None):
+    if dataset == "ukb":
+        n_components = 10
+        age_estimator = "gmm"
+        log_volumes = True
+    elif dataset == "adni":
+        n_components = 8
+        age_estimator = "beta"
+        log_volumes = False
+    elif dataset == "retinal":
+        n_components = 13
+        age_estimator = "gmm"
+        if which_source == "source1":
+            log_volumes = True
+        elif which_source == "source2": ## have negative values
+            log_volumes = True
+    return n_components, age_estimator, log_volumes
 ## select a dataset
 def set_dataset(name: str, which_source=None):
     # DATASET = "ukb"
@@ -30,7 +48,7 @@ def set_dataset(name: str, which_source=None):
     elif name == "ukb":
         ## VARS are for UKB
         if which_source == "source1":
-            VOLS = ["cortex_left"]
+            VOLS = ["grey_matter"]
             # VOLS = ["brain"]
         elif which_source == "source2":
             VOLS = ["ventricle"]
@@ -85,6 +103,7 @@ class CausalSampling:
         print(f"which_source: {self.which_source}")
         assert self.which_source.startswith("source")
         self.vars, self.vols = set_dataset(self.dataset, self.which_source)
+        self.n_components, self.age_estimator, self.log_volumes = get_settings(self.dataset, self.which_source)
         ## we only know labels from the training set
         self._get_all_fnames()
         # PIL.Image.init()
@@ -106,7 +125,14 @@ class CausalSampling:
         return os.path.splitext(fname)[1].lower()
     
     def _mu_std_df(self):
-        return {"mu": self.df.mean(), "std": self.df.std()}
+        df = self.df.copy()
+        if self.log_volumes:
+            if self.dataset == "retinal" and self.which_source == "source2": ## ukb
+                df[self.vols[0] + "_shift"] = np.log(df[self.vols] + 1e2)
+                df["shift_scale"] = 1e2
+            else:
+                df[self.vols] = np.log(df[self.vols])
+        return {"mu": df.mean(), "std": df.std()}
 
     def get_graph(self):
         self.df = get_data(self.dataset, self.vars, self.label_path, self._image_fnames)
@@ -114,33 +140,16 @@ class CausalSampling:
         return self.df
         
     def get_causal_model(self):
-        if self.dataset == "ukb":
-            n_components = 10
-            age_estimator = "gmm"
-            log_volumes = True
-        elif self.dataset == "adni":
-            n_components = 8
-            age_estimator = "beta"
-            log_volumes = False
-        elif self.dataset == "retinal":
-            n_components = 13
-            age_estimator = "gmm"
-            if self.which_source == "source1":
-                log_volumes = True
-            elif self.which_source == "source2":
-                log_volumes = False
-
         self.model = estimate_mle(
             df = self.get_graph(),
             dataset=self.dataset,
             vars=self.vars,
             vols=self.vols,
             volumes_as_gmm=True,
-            n_components=n_components,
-            age_estimator=age_estimator,
-            log_volumes=log_volumes
+            n_components=self.n_components,
+            age_estimator=self.age_estimator,
+            log_volumes=self.log_volumes
         )
-
         return self.model
 
     def sampling_model(self, num_samples: int):
@@ -157,7 +166,13 @@ class CausalSampling:
             ages, volumes = sample_from_model_given_age(age, self.dataset, self.model)
             ages = (ages - self.model["min_age"]) / (self.model["max_age"] - self.model["min_age"])
             # ages = (ages - self.mu_std_df["mu"][self.vars[0]]) / self.mu_std_df["mu"][self.vars[0]]
-            volumes = (volumes - self.mu_std_df["mu"][self.vols[0]]) / self.mu_std_df["std"][self.vols[0]]
+            if self.log_volumes:
+                if self.model["log_shift"] is not None:
+                    volumes = (torch.log(volumes + self.model["log_shift"]) - self.mu_std_df["mu"][self.vols[0] + "_shift"]) / self.mu_std_df["std"][self.vols[0] + "_shift"]
+                else:
+                    volumes = (torch.log(volumes) - self.mu_std_df["mu"][self.vols[0]]) / self.mu_std_df["std"][self.vols[0]]
+            else:
+                volumes = (volumes - self.mu_std_df["mu"][self.vols[0]]) / self.mu_std_df["std"][self.vols[0]]
             return torch.cat([ages, volumes], dim=1)
         else:
             return sample_from_model_given_age(age, self.dataset, self.model)
@@ -227,6 +242,7 @@ def estimate_mle(
     gmm_random_state=0,
     age_estimator="normal",
     log_volumes=False,  ## default: False, if data == 'ukb' then true.
+    log_shift=1e2,
 ):
 
     ## Age
@@ -235,7 +251,12 @@ def estimate_mle(
         vol_model="lognormal" if log_volumes else "normal",
     )
     labels_vol = vols ## labels: volumes from MRI images
-    vols = np.log(df[vols].values) if log_volumes else df[vols].values
+    if df[vols].values.min() < 0 and log_volumes: ## need to separate positive and negative values
+        log_neg = True
+        vols = np.log(df[vols].values + log_shift)
+    else:
+        log_neg = False
+        vols = np.log(df[vols].values) if log_volumes else df[vols].values
 
     ## Gaussian dist
     age = df[vars[0]].values
@@ -288,23 +309,30 @@ def estimate_mle(
 
     elif dataset == "ukb":
         model.update(
-            vol_means=df[labels_vol].mean().values, ## because we np.log before
-            vol_std=df[labels_vol].std().values,
+            vol_means=vols.mean() if log_volumes else df[labels_vol].mean().values,
+            vol_std=vols.std() if log_volumes else df[labels_vol].std().values,
         )
     elif dataset == "retinal":
-        model.update(
-            c_means=df[labels_vol].mean().values, ## because we np.log before
-            c_std=df[labels_vol].std().values,
-        )
+        if log_neg: ## need to separate positive and negative values
+            model.update(
+                c_means=vols.mean(),
+                c_std=vols.std(),
+                log_shift=log_shift,
+            )
+        else:
+            model.update(
+                c_means=vols.mean() if log_volumes else df[labels_vol].mean().values,
+                c_std=vols.std() if log_volumes else df[labels_vol].std().values,
+            )
     
     if volumes_as_gmm: ## gussian mixture model
         if dataset == "ukb" or dataset == "retinal":
             vol_gmm, vol_indices = gmm_regression(
-                y=vols.reshape(-1, 1),
-                x=df[vars[0]].values.reshape(-1, 1),
-                n_components=n_components,
-                random_state=gmm_random_state,
-            )
+                    y=vols.reshape(-1, 1),
+                    x=df[vars[0]].values.reshape(-1, 1),
+                    n_components=n_components,
+                    random_state=gmm_random_state,
+                )
         elif dataset == "adni":
             vol_gmm, vol_indices = gmm_regression(
                 y=vols,
@@ -314,6 +342,7 @@ def estimate_mle(
             )
         model["vol_gmm"] = vol_gmm
         model["vol_indices"] = vol_indices
+        model["log_shift"] = log_shift if log_neg else None
 
     else: ## multivariate linear regression
         if dataset == "ukb":
@@ -367,10 +396,8 @@ def sample_from_model(dataset: str, model, num_samples=100):
         V = X @ model["vol_weights"].T + model["vol_bias"] + mvn.sample((num_samples,))
     if model["vol_model"] == "lognormal":
         V.exp_()
-    # elif model["vol_model"] == "normal":
-    #     ## temporary sol (flip)
-    #     V[:, 0] = abs(V[:, 0])
-
+        if model["log_shift"] is not None:
+            V = V - model["log_shift"]
     if dataset == "ukb" or dataset == "retinal":
         return A, V
     elif dataset == "adni":
@@ -403,6 +430,8 @@ def sample_from_model_given_age(age, dataset: str, model):
         V = X @ model["vol_weights"].T + model["vol_bias"] + mvn.sample((num_samples,))
     if model["vol_model"] == "lognormal":
         V.exp_()
+        if model["log_shift"] is not None:
+            V = V - model["log_shift"]
     
     if dataset == "ukb" or dataset == "retinal":
         return age, V.reshape(-1, 1)
@@ -445,9 +474,18 @@ def sample_from_model_given_cdr(cdr, age, sex, dataset: str, model):
 
 def preprocess_samples(A, V=None, model=None, dataset:str = None):
     if dataset == "ukb":
-        V = (V - model["vol_means"]) / model["vol_std"]
+        if model["vol_model"] == "lognormal":
+            V = (torch.log(V) - model["vol_means"]) / model["vol_std"]
+        else:
+            V = (V - model["vol_means"]) / model["vol_std"]
     elif dataset == "retinal":
-        V = (V - model["c_means"]) / model["c_std"]
+        if model["vol_model"] == "lognormal":
+            if model["log_shift"] is not None:
+                V = (torch.log(V + model["log_shift"]) - model["c_means"]) / model["c_std"]
+            else:
+                V = (torch.log(V) - model["c_means"]) / model["c_std"]
+        else:
+            V = (V - model["c_means"]) / model["c_std"]
     if dataset == "oasis3" or dataset == "adni":
         if dataset == "oasis3":
             A = (A - model["mu_age"]) / model["sigma_age"]
