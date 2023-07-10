@@ -111,7 +111,7 @@ def run_visualizer_two_covs(
         --network=https://api.ngc.nvidia.com/v2/models/nvidia/research/stylegan3/versions/1/files/stylegan3-t-metfacesu-1024x1024.pkl
     """
     device = torch.device('cuda')
-    num_labels = 7
+    num_labels = 5
     # Load the network.
     Gen = load_generator(
         network_pkl=None,
@@ -146,7 +146,7 @@ def run_visualizer_two_covs(
                                       xflip=False)
 
     elif dataset in ["mnist-thickness-intensity", "mnist-thickness-slant", "mnist-thickness-intensity-slant"]:
-        dataset2 = "mnist-thickness-intensity-slant" if dataset == "mnist-thickness-intensity" else "mnist-thickness-intensity"
+        dataset2 = "mnist-thickness-intensity-slant" if dataset == "mnist-thickness-intensity-slant" else "mnist-thickness-intensity"
         # dataset2 = "mnist-thickness-slant" if dataset == "mnist-thickness-intensity" else "mnist-thickness-intensity"
         ## seed is as the common convariate (c1)
         ds1 = MorphoMNISTDataset_causal(data_name=dataset,
@@ -171,14 +171,14 @@ def run_visualizer_two_covs(
         c3_range = np.linspace(labels2_min[1]-2, labels2_max[1]+2, num=num_labels).reshape(-1, 1)
     elif group_by == "c2":
         c2_min, c2_max = labels1_min[1], labels1_max[1]
-        c2 = np.mean([c2_min, c2_max])
-        c1_range = np.linspace(c1_min-2, c1_max+2, num=num_labels).reshape(-1, 1)
+        c2 = np.mean([c2_min, c2_max]) + 0.5
+        c1_range = np.linspace(c1_min-3, c1_max+3, num=num_labels).reshape(-1, 1)
         c2_range = np.array([c2] * num_labels).reshape(-1, 1)
         c3_range = np.linspace(labels2_min[1]-2, labels2_max[1]+2, num=num_labels).reshape(-1, 1)
     elif group_by == "c3":
         c3_min, c3_max = labels2_min[1], labels2_max[1]
         c3 = np.mean([c3_min, c3_max])
-        c1_range = np.linspace(c1_min-2, c1_max+2, num=num_labels).reshape(-1, 1)
+        c1_range = np.linspace(c1_min-3, c1_max+3, num=num_labels).reshape(-1, 1)
         c2_range = np.linspace(labels1_min[1]-2, labels1_max[1]+2, num=num_labels).reshape(-1, 1)
         c3_range = np.array([c3] * num_labels).reshape(-1, 1)
     c = torch.tensor(np.concatenate([c1_range, c2_range, c3_range], axis=1)).to(device)
@@ -190,7 +190,12 @@ def run_visualizer_two_covs(
         z = torch.from_numpy(np.random.RandomState(seed).randn(1, Gen.z_dim)).to(device)
         for x in range(c.shape[0]):
             for y in range(c.shape[0]):
-                l = torch.tensor((c1_range[0], c2_range[x], c3_range[y])).reshape(1, -1).to(device)
+                if group_by == "c1":
+                    l = torch.tensor((c1_range[0], c2_range[x], c3_range[y])).reshape(1, -1).to(device)
+                elif group_by == "c2":
+                    l = torch.tensor((c1_range[x], c2_range[0], c3_range[y])).reshape(1, -1).to(device)
+                elif group_by == "c3":
+                    l = torch.tensor((c1_range[x], c2_range[y], c3_range[0])).reshape(1, -1).to(device)
                 img = generate_images(Gen, z, l, truncation_psi, noise_mode, translate, rotate)
                 gen_images.append(img)
         imgs = torch.cat(gen_images, dim=0)
@@ -208,7 +213,7 @@ def run_visualizer_two_covs(
             y_range = c1_range
             y_name = get_covs(dataset)["c1"]
             x_range = c2_range
-            y_name = get_covs(dataset)["c2"]
+            x_name = get_covs(dataset)["c2"]
         plot_two_covs_images(imgs, y_range, x_range, dataset_name=dataset,
                              c2_name=y_name, c3_name=x_name,
                             save_path=f'{outdir}/seed{seed:04d}.png',

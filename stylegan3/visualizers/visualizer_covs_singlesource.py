@@ -61,6 +61,7 @@ def make_transform(translate: Tuple[float,float], angle: float):
 # @click.option('--label-mode', 'label_mode', type=click.Choice(['test', 'sampling']), 
 #               default='test', show_default=True)
 @click.option('--dataset', 'dataset', type=click.Choice(['mnist-thickness-intensity', 'mnist-thickness-slant',
+                                                         'mnist-thickness-intensity-slant',
                                                          'ukb', 'retinal', None]),
               default=None, show_default=True)
 @click.option('--data-path', 'data_path', type=str, help='Path to the data source', required=True)
@@ -120,16 +121,15 @@ def run_visualizer_two_covs_singlesource(
                                     mode="test", 
                                     use_labels=True,
                                     xflip=False)
-    elif dataset in ["mnist-thickness-intensity", "mnist-thickness-slant"]:
+    elif dataset in ["mnist-thickness-intensity", "mnist-thickness-slant", "mnist-thickness-intensity-slant"]:
         ## seed is as the common convariate (c1)
         ds = MorphoMNISTDataset_causal(data_name=dataset,
                                         path=data_path,
                                         mode="test",
                                         use_labels=True,
                                         xflip=False)
-    if dataset in ["ukb", "retinal"]:
-        which_source = ds.which_source
-        dataset = dataset + "_" + which_source
+    which_source = ds.which_source
+    dataset = dataset + "_" + which_source
     labels = ds._load_raw_labels() ## (c1, c2)
     labels_min, labels_max = labels.min(axis=0), labels.max(axis=0)
     c1_range = np.linspace(labels_min[0]-2, labels_max[0]+2, num=num_labels).reshape(-1, 1)
@@ -148,7 +148,7 @@ def run_visualizer_two_covs_singlesource(
                 gen_images.append(img)
         imgs = torch.cat(gen_images, dim=0)
         plot_two_covs_images(imgs, c1_range, c2_range, dataset_name=dataset,
-                             save_path=f'{outdir}/seed{seed:04d}.pdf',
+                             save_path=f'{outdir}/seed{seed:04d}.png',
                              single_source=True)
 
 ## --- run ---

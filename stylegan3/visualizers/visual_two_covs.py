@@ -4,13 +4,6 @@ import numpy as np
 import pandas as pd
 import torch
 
-
-### Heatmap calculation
-def heatmap_covs(
-):
-    pass
-
-
 ### Condition on two covariates and generate images
 def generate_labels_two_covs(
     dataset_name: str,
@@ -55,7 +48,7 @@ def plot_two_covs_images(
     if single_source:
         if dataset_name in ["mnist-thickness-intensity", "mnist-thickness-slant", "mnist-thickness-intensity-slant"]:
             c2_name = "thickness"
-            c3_name = "intensity" if dataset_name == "mnist-thickness-intensity" else "slant"
+            c3_name = "intensity" if dataset_name.split("_")[-1] == "source1" else "slant"
         elif dataset_name.split("_")[0] == "ukb":
             c2_name = "age"
             c3_name = "brain" if dataset_name.split("_")[-1] == "source1" else "ventricles"
@@ -89,5 +82,84 @@ def plot_two_covs_images(
     fig.supxlabel(f"c3: {c3_name}", fontsize=14)
     fig.supylabel(f"c2: {c2_name}", fontsize=14)
     if save_path is not None:
+        plt.savefig(save_path)
+        save_path = save_path.replace(".png", ".pdf")
+        plt.savefig(save_path)
+    plt.close()
+
+def plot_negpos_images(
+    real_images: dict,
+    gen_images: dict,
+    dataset_name: str,
+    c2_name = None,
+    c3_name = None,
+    save_path: str = None,
+    single_source: bool = True
+):
+    if single_source:
+        if dataset_name in ["mnist-thickness-intensity", "mnist-thickness-slant", "mnist-thickness-intensity-slant"]:
+            c2_name = "thickness"
+            c3_name = "intensity" if dataset_name.split("_")[-1] == "source1" else "slant"
+        elif dataset_name.split("_")[0] == "ukb":
+            c2_name = "age"
+            c3_name = "brain" if dataset_name.split("_")[-1] == "source1" else "ventricles"
+        elif dataset_name.split("_")[0] == "retinal":
+            c2_name = "age"
+            c3_name = "systolic bp" if dataset_name.split("_")[-1] == "source1" else "cylindrical power"
+            dataset_name = "retinal"
+    fig = plt.figure(figsize=(32, 16))
+    for i in range(4):
+        reimgs = real_images[str(i)].cpu().detach().numpy()
+        genimgs = gen_images[str(i)].cpu().detach().numpy()
+        nrows = 2
+        ncols = int(gen_images[str(i)].shape[0] // nrows)
+        gs = gridspec.GridSpec(nrows, ncols,
+            wspace=0.0, hspace=0.0
+        )
+        gs1 = gridspec.GridSpec(nrows, ncols,
+            wspace=0.0, hspace=0.0
+        )
+        if i == 0:
+            gs.update(left=0.05, right=0.48, bottom=0.52, top=0.72)
+            gs1.update(left=0.05, right=0.48, bottom=0.75, top=0.95)
+        elif i == 1:
+            gs.update(left=0.52, right=0.95, bottom=0.52, top=0.72)
+            gs1.update(left=0.52, right=0.95, bottom=0.75, top=0.95)
+        elif i == 2:
+            gs.update(left=0.05, right=0.48, bottom=0.05, top=0.25)
+            gs1.update(left=0.05, right=0.48, bottom=0.27, top=0.48)
+        elif i == 3:
+            gs.update(left=0.52, right=0.95, bottom=0.05, top=0.25)
+            gs1.update(left=0.52, right=0.95, bottom=0.27, top=0.48)
+        
+        for i in range(nrows):
+            for j in range(ncols):
+                ax = plt.subplot(gs[i, j])
+                ax1 = plt.subplot(gs1[i, j])
+                if dataset_name == "retinal":
+                    img = reimgs[i * ncols + j] ### (M, M, 3)
+                    ax.imshow(img, vmin=0, vmax=255)
+                    img = genimgs[i * ncols + j] ### (M, M, 3)
+                    ax1.imshow(img, vmin=0, vmax=255)
+                else:
+                    img = reimgs[i * ncols + j][:, :, 0]
+                    ax.imshow(img, cmap="gray", vmin=0, vmax=255)
+                    img = genimgs[i * ncols + j][:, :, 0]
+                    ax1.imshow(img, cmap="gray", vmin=0, vmax=255)
+                if j == 0:
+                    ax.set_ylabel("Real", fontsize=8)
+                    ax1.set_ylabel("Generated", fontsize=8)
+                # if i == nrows - 1:
+                #     ax.set_xlabel("{:.2f}".format(c3[j][0]), fontsize=8)
+                ax.set_xticklabels([])
+                ax.set_yticklabels([])
+                ax1.set_xticklabels([])
+                ax1.set_yticklabels([])
+    fig.suptitle("Most Negative images                      Most Postive images", fontsize=14)
+    fig.supxlabel(f"c3: {c3_name}", fontsize=14)
+    fig.supylabel(f"c2: {c2_name}", fontsize=14)
+    if save_path is not None:
+        plt.savefig(save_path)
+        save_path = save_path.replace(".png", ".pdf")
         plt.savefig(save_path)
     plt.close()
