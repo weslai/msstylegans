@@ -9,14 +9,11 @@
 """Tool for creating ZIP/PNG based datasets."""
 
 import functools
-import gzip
 import io
 import json
 import os
-import pickle
 import re
 import sys
-import tarfile
 import zipfile
 from pathlib import Path
 from typing import Callable, Optional, Tuple, Union
@@ -27,7 +24,19 @@ import PIL.Image
 import pandas as pd
 from tqdm import tqdm
 from sklearn.model_selection import train_test_split
-
+from skimage.util import crop
+#----------------------------------------------------------------------------
+def check_direction(img):
+    ## crop the image
+    img_crop = crop(img, ((50, 50), (50, 50), (0, 0)))
+    intensity_middle = img_crop[img_crop.shape[0] //2, :, 0]
+    max_intensity = np.max(intensity_middle)
+    idx_max = np.where(intensity_middle == max_intensity)[0]
+    if idx_max[0] < img_crop.shape[1] // 2:
+        direction = "left"
+    else:
+        direction = "right"
+    return direction
 #----------------------------------------------------------------------------
 
 def error(msg):
@@ -122,306 +131,46 @@ def open_image_zip(source, *, max_images: Optional[int]):
                 if idx >= max_idx-1:
                     break
     return max_idx, iterate_images()
-
 #----------------------------------------------------------------------------
-
-def open_lmdb(lmdb_dir: str, *, max_images: Optional[int]):
-    import cv2  # pip install opencv-python # pylint: disable=import-error
-    import lmdb  # pip install lmdb # pylint: disable=import-error
-
-    with lmdb.open(lmdb_dir, readonly=True, lock=False).begin(write=False) as txn:
-        max_idx = maybe_min(txn.stat()['entries'], max_images)
-
-    def iterate_images():
-        with lmdb.open(lmdb_dir, readonly=True, lock=False).begin(write=False) as txn:
-            for idx, (_key, value) in enumerate(txn.cursor()):
-                try:
-                    try:
-                        img = cv2.imdecode(np.frombuffer(value, dtype=np.uint8), 1)
-                        if img is None:
-                            raise IOError('cv2.imdecode failed')
-                        img = img[:, :, ::-1] # BGR => RGB
-                    except IOError:
-                        img = np.array(PIL.Image.open(io.BytesIO(value)))
-                    yield dict(img=img, label=None)
-                    if idx >= max_idx-1:
-                        break
-                except:
-                    print(sys.exc_info()[1])
-
-    return max_idx, iterate_images()
-
-#----------------------------------------------------------------------------
-
-def open_cifar10(tarball: str, *, max_images: Optional[int]):
-    images = []
-    labels = []
-
-    with tarfile.open(tarball, 'r:gz') as tar:
-        for batch in range(1, 6):
-            member = tar.getmember(f'cifar-10-batches-py/data_batch_{batch}')
-            with tar.extractfile(member) as file:
-                data = pickle.load(file, encoding='latin1')
-            images.append(data['data'].reshape(-1, 3, 32, 32))
-            labels.append(data['labels'])
-
-    images = np.concatenate(images)
-    labels = np.concatenate(labels)
-    images = images.transpose([0, 2, 3, 1]) # NCHW -> NHWC
-    assert images.shape == (50000, 32, 32, 3) and images.dtype == np.uint8
-    assert labels.shape == (50000,) and labels.dtype in [np.int32, np.int64]
-    assert np.min(images) == 0 and np.max(images) == 255
-    assert np.min(labels) == 0 and np.max(labels) == 9
-
-    max_idx = maybe_min(len(images), max_images)
-
-    def iterate_images():
-        for idx, img in enumerate(images):
-            yield dict(img=img, label=int(labels[idx]))
-            if idx >= max_idx-1:
-                break
-
-    return max_idx, iterate_images()
-
-#----------------------------------------------------------------------------
-
-def open_mnist(
-    images_gz: str, 
-    *,
-    dataset_name: str = None,
-    max_images: Optional[int], 
-    which_dataset: str = 'train'
-):
-    labels_gz = images_gz.replace('-images-idx3-ubyte.gz', '-labels-idx1-ubyte.gz')
-    assert labels_gz != images_gz
-    assert which_dataset in ['train', 'val', 'test']
-    images = []
-    labels = []
-
-    with gzip.open(images_gz, 'rb') as f:
-        images = np.frombuffer(f.read(), np.uint8, offset=16)
-    with gzip.open(labels_gz, 'rb') as f:
-        labels = np.frombuffer(f.read(), np.uint8, offset=8)
-    images = images.reshape(-1, 28, 28)
-    images = np.pad(images, [(0,0), (2,2), (2,2)], 'constant', constant_values=0)
-    if which_dataset == 'train' or which_dataset == 'val':
-        assert images.shape == (60000, 32, 32) and images.dtype == np.uint8
-        assert labels.shape == (60000,) and labels.dtype == np.uint8
-    elif which_dataset == 'test':
-        assert images.shape == (10000, 32, 32) and images.dtype == np.uint8
-        assert labels.shape == (10000,) and labels.dtype == np.uint8
-    assert np.min(images) == 0 and np.max(images) == 255
-    assert np.min(labels) == 0 and np.max(labels) == 9
-    if dataset_name == 'mnist-thickness-intensity':
-        covs = ["thickness", "intensity", "label"]
-    elif dataset_name == 'mnist-thickness-slant':
-        covs = ["thickness", "slant", "label"]
-    elif dataset_name == 'mnist-thickness':
-        covs = ["thickness", "label"]
-    elif dataset_name == 'mnist-thickness-intensity-slant':
-        covs = ["thickness", "intensity", "slant", "label"]
-    if dataset_name in ["mnist-thickness-intensity", "mnist-thickness-slant", "mnist-thickness", "mnist-thickness-intensity-slant"]:
-        morpho_csv = images_gz.replace('-images-idx3-ubyte.gz', '-morpho.csv')
-        morpho_labels = pd.read_csv(morpho_csv)
-        data = []
-        for idx, row in morpho_labels.iterrows():
-            thickness = row["thickness"]
-            if dataset_name == "mnist-thickness-intensity":
-                cov = row["intensity"]
-            elif dataset_name == "mnist-thickness-slant":
-                cov = row["slant"]
-            elif dataset_name == "mnist-thickness":
-                cov = None
-            elif dataset_name == "mnist-thickness-intensity-slant":
-                cov = (row["intensity"], row["slant"])
-            data += [[thickness, *cov, int(labels[idx])]] if cov is not None else [[thickness, int(labels[idx])]]
-        df = pd.DataFrame(data, columns=covs)
-    max_idx = maybe_min(len(images), max_images)
-
-    def iterate_images(imgs, labels = None):
-        if dataset_name in ["mnist-thickness-intensity", "mnist-thickness-slant", "mnist-thickness", "mnist-thickness-intensity-slant"]:
-            if which_dataset in ['train', 'val']:
-                ## images and labels
-                images_train, images_val, df_train, df_val = train_test_split(imgs, labels, 
-                                                                              test_size=0.1, random_state=42)
-                if which_dataset == 'train':
-                    images = images_train
-                    df = df_train
-                elif which_dataset == 'val':
-                    images = images_val
-                    df = df_val
-            elif which_dataset == 'test':
-                images = imgs
-                df = labels
-            max_idx = maybe_min(len(images), max_images)
-            for idx, img in enumerate(images):
-                items = dict(
-                    (key, value)
-                        for key, value in df.iloc[idx][covs].to_dict().items()
-                )
-                yield dict(img=img, label=items)
-                if idx >= max_idx - 1:
-                    break
-        else:
-            max_idx = maybe_min(len(imgs), max_images)
-            for idx, img in enumerate(imgs):
-                yield dict(img=img, label=int(labels[idx]))
-                if idx >= max_idx-1:
-                    break
-    return max_idx, iterate_images(images, df)
-
-#----------------------------------------------------------------------------
-def open_mnist_total(
-    images_gz: str, 
-    *,
-    dataset_name: str = None,
-    max_images: Optional[int],
-    which_dataset: str = 'train'
-):
-    labels_gz = images_gz.replace('-images-idx3-ubyte.gz', '-labels-idx1-ubyte.gz')
-    assert labels_gz != images_gz
-    images = []
-    labels = []
-
-    with gzip.open(images_gz, 'rb') as f:
-        images = np.frombuffer(f.read(), np.uint8, offset=16)
-    with gzip.open(labels_gz, 'rb') as f:
-        labels = np.frombuffer(f.read(), np.uint8, offset=8)
-    images = images.reshape(-1, 28, 28)
-    images = np.pad(images, [(0,0), (2,2), (2,2)], 'constant', constant_values=0)
-    if which_dataset == 'train':
-        assert images.shape == (60000, 32, 32) and images.dtype == np.uint8
-        assert labels.shape == (60000,) and labels.dtype == np.uint8
-    elif which_dataset == 'test':
-        assert images.shape == (10000, 32, 32) and images.dtype == np.uint8
-        assert labels.shape == (10000,) and labels.dtype == np.uint8
-    assert np.min(images) == 0 and np.max(images) == 255
-    assert np.min(labels) == 0 and np.max(labels) == 9
-    if dataset_name == 'mnist-thickness-intensity':
-        covs = ["thickness", "intensity", "label"]
-    elif dataset_name == 'mnist-thickness-slant':
-        covs = ["thickness", "slant", "label"]
-    elif dataset_name == 'mnist-thickness':
-        covs = ["thickness", "label"]
-    elif dataset_name == 'mnist-thickness-intensity-slant':
-        covs = ["thickness", "intensity", "slant", "label"]
-    if dataset_name in ["mnist-thickness-intensity", "mnist-thickness-slant", "mnist-thickness", "mnist-thickness-intensity-slant"]:
-        morpho_csv = images_gz.replace('-images-idx3-ubyte.gz', '-morpho.csv')
-        morpho_labels = pd.read_csv(morpho_csv)
-        data = []
-        for idx, row in morpho_labels.iterrows():
-            thickness = row["thickness"]
-            if dataset_name == "mnist-thickness-intensity":
-                cov = row["intensity"]
-            elif dataset_name == "mnist-thickness-slant":
-                cov = row["slant"]
-            elif dataset_name == "mnist-thickness":
-                cov = None
-            elif dataset_name == "mnist-thickness-intensity-slant":
-                cov = (row["intensity"], row["slant"])
-            data += [[thickness, *cov, int(labels[idx])]] if cov is not None else [[thickness, int(labels[idx])]]
-        df = pd.DataFrame(data, columns=covs)
-    max_idx = maybe_min(len(images), max_images)
-
-    def iterate_images():
-        for idx, img in enumerate(images):
-            items = dict(
-                (key, value)
-                    for key, value in df.iloc[idx][covs].to_dict().items()
-            )
-            yield dict(img=img, label=items)
-            if idx >= max_idx - 1:
-                break
-    return max_idx, iterate_images()
-
-#----------------------------------------------------------------------------
-## UKB Brain MRI T1
-def open_ukb(
+def open_kaggle_eyepacs(
     annotation_path: str,
     max_images: Optional[int],
     which_dataset: str,
-    normalize_img: bool = True,
-    covs: list = [
-        "filepath_MNIlin", 
-        "Age", 
-        "Sex", 
-        "ventricle",
-        "brain",
-        "intracranial"
-    ]
+    covs: list = ["image", "level"],
+    which_side: str = "left"
 ):
-    import nibabel as nib
-    # from glob import glob
-    # from os.path import join
+    """
+    use https://www.kaggle.com/competitions/diabetic-retinopathy-detection/overview
+    as the dataset
+    """
     assert which_dataset in ['train', 'val', 'test']
-    ## load data 
-    df = pd.read_csv(annotation_path)
+    ## load data
+    if annotation_path.split(".")[-1] == "zip":
+        labels = zipfile.ZipFile(annotation_path, 'r')
+        df = pd.read_csv(labels.open(labels.filelist[0]))
+    else:
+        df = pd.read_csv(annotation_path)
     df_ext = df[covs].dropna()
+    ## pick the side
+    split_df = df_ext["image"].str.split("_", n = 1, expand = True)
+    df_side = df_ext[split_df[1] == which_side]
+    ## add paths 
+    if which_dataset in ["train", "val"]:
+        temp_path = os.path.join("/", *annotation_path.split("/")[:-1])
+        df_side["path"] =  temp_path + "/train/" + df_side["image"] + ".jpeg"
+    else:
+        temp_path = "/dhc/dsets/diabetic_retinopathy"
+        df_side["path"] =  temp_path + "/test/" + df_side["image"] + ".jpeg"
     ## separate train/val/test sets
-    trainset, testset = train_test_split(df_ext, test_size=0.35, random_state=42, shuffle=True)
-    trainset, valset = train_test_split(trainset, test_size=0.1, random_state=42, shuffle=True)
-    if which_dataset == "train":
-        dataset = trainset
-    elif which_dataset == "val":
-        dataset = valset
-    elif which_dataset == "test":
-        dataset = testset
-
-    ## trainset/testset
-    input_imgs = list(dataset["path"])
-    max_idx = maybe_min(len(input_imgs), max_images)
-
-    def iterate_images():
-        for idx, fname in enumerate(input_imgs):
-            ## load image
-            img = nib.load(fname)
-            newimg = img.get_fdata()
-            ## middle slice
-            newimg = np.take(
-                newimg,
-                newimg.shape[1] // 2,
-                1
-            )
-            ## rotate images
-            newimg = np.rot90(newimg, k=1, axes=(0, 1))
-            if normalize_img:
-                newimg = (newimg - newimg.min()) / (newimg.max() - newimg.min())
-                newimg = (255 * newimg).astype(np.uint8)
-                # img = (255 * img).round().astype(np.uint8)
-            items = dict(
-                (key, value)
-                    for key, value in dataset.loc[dataset["path"] == fname][covs[1:]].to_dict().items()
-            )
-            yield dict(img=newimg, label=items, org_img=img)
-            if idx >= max_idx - 1:
-                break
-    return max_idx, iterate_images()
-#----------------------------------------------------------------------------
-## UKB Retinal Data
-def open_ukb_retinal(
-    annotation_path: str,
-    max_images: Optional[int],
-    which_dataset: str,
-    covs: list = [
-        "path", 
-        "age",  
-        "diastolic_bp",
-        "spherical_power_left"
-    ]
-):
-    assert which_dataset in ['train', 'val', 'test']
-    ## load data 
-    df = pd.read_csv(annotation_path)
-    df_ext = df[covs].dropna()
-    ## separate train/val/test sets
-    trainset, testset = train_test_split(df_ext, test_size=0.3, random_state=42, shuffle=True)
-    trainset, valset = train_test_split(trainset, test_size=0.1, random_state=42, shuffle=True)
-    if which_dataset == "train":
-        dataset = trainset
-    elif which_dataset == "val":
-        dataset = valset
-    elif which_dataset == "test":
-        dataset = testset
+    if which_dataset in ["train", "val"]:
+        trainset, valset = train_test_split(df_side, test_size=0.3, random_state=42, shuffle=True)
+        if which_dataset == "train":
+            dataset = trainset
+        elif which_dataset == "val":
+            dataset = valset
+    else:
+        # trainset, valset = train_test_split(trainset, test_size=0.1, random_state=42, shuffle=True)
+        dataset = df_side
 
     ## trainset/testset
     input_imgs = list(dataset["path"])
@@ -439,7 +188,6 @@ def open_ukb_retinal(
             if idx >= max_idx - 1:
                 break
     return max_idx, iterate_images()
-
 #----------------------------------------------------------------------------
 def open_adni(
     annotation_path: str,
@@ -520,66 +268,6 @@ def open_adni(
             if idx >= max_idx - 1:
                 break
     return max_idx, iterate_images()
-
-#----------------------------------------------------------------------------
-## make dataset from Morpho-MNIST
-## create labels
-PERTURB_TYPES = {"origin": "original", "swelling" : "SwellingOnly224_17",
-                "fraction" : "FractureOnly224_17"}
-PERTURB_ONEHOT = {"origin": 0, "swelling": 1, "fraction": 2}
-def open_morpho_mnist(
-    path: str,
-    max_images: Optional[int],
-    normalize_img: bool = False,
-    covs = ["origin", "fraction", "swelling"]
-):
-    from glob import glob
-    from os.path import join
-
-    cols = ["image", "labels", "cov"]
-    df_concat = None
-    ## labels
-    for cov in covs:
-        ## load csv files
-        temp_label_path = path + "/" + PERTURB_TYPES[cov] + "/measures.csv"
-        label_df = pd.read_csv(temp_label_path)
-        ## keep the useful information
-        label_df = label_df[cols[:2]].dropna()
-        label_df["cov"] = PERTURB_ONEHOT[cov]
-        data = []
-        ## make the new path
-        for _, row in label_df.iterrows():
-            spths = glob(join(path, PERTURB_TYPES[cov], row["image"]))
-            data += [list(row) + [p] for p in spths]
-        dataframe = pd.DataFrame(data=data, columns=list(label_df.columns) + ["path"])
-        if df_concat is None:
-            df_concat = dataframe
-        else:
-            df_concat = pd.concat([df_concat, dataframe], axis=0, ignore_index=True)
-    ## drop column "image"
-    df_concat = df_concat.drop(columns=["image"])
-
-    input_images = list(df_concat["path"])
-    max_idx = maybe_min(len(input_images), max_images)
-    
-    new_cols = ["labels", "cov"]
-    ## iterate images
-    def iterate_images():
-        for idx, fname in enumerate(input_images):
-            img = np.array(PIL.Image.open(fname))
-            if normalize_img:
-                img = (img - img.min()) / (img.max() - img.min())
-                img = (255 * img).round().astype(np.uint8)
-                # img = (255 * ((img - img.min()) /(img.max() - img.min()))).astype("uint8")
-            items = dict(
-                (key, value)
-                    for key, value in df_concat.iloc[idx][new_cols].to_dict().items()
-            )
-            yield dict(img=img, label=items)
-            if idx >= max_idx - 1:
-                break
-    return max_idx, iterate_images()
-
 #----------------------------------------------------------------------------
 
 def make_transform(
@@ -635,44 +323,22 @@ def make_transform(
 
 #----------------------------------------------------------------------------
 
-def open_dataset(source, *, dataset_name: str = None, 
+def open_dataset(source, *, 
                  annotation_path: str = None,
                  which_dataset: str = None, max_images: Optional[int]):
     if os.path.isdir(source):
-        if source.rstrip('/').endswith('_lmdb'):
-            return open_lmdb(source, max_images=max_images)
-        ## ukbiobank
-        ## brain-mri
-        elif source.rstrip('/').endswith("unzipped"):
-            return open_ukb(
-                # annotation_path="/dhc/groups/fglippert/Ukbiobank/imaging/brain_mri/ukb_annotation.csv",
+        ## retinal (kaggle eyepac dataset)
+        if source.rstrip('/').endswith("diabetic_retinopathy"):
+            return open_kaggle_eyepacs(
                 annotation_path=annotation_path,
                 max_images=max_images,
                 which_dataset=which_dataset,
-                covs=[
-                    "path", 
-                    "age",  
-                    "ventricle",
-                    "grey_matter" ## cortex left
-                ]
-            )
-        ## retinal-fundus
-        elif source.rstrip('/').endswith("retinal_fundus"):
-            return open_ukb_retinal(
-                annotation_path=annotation_path,
-                max_images=max_images,
-                which_dataset=which_dataset,
-                covs=[
-                    "path", 
-                    "age",  
-                    "diastolic_bp",
-                    "spherical_power_left"
-                ]
+                covs=["image", "level"],
+                which_side="left"
             )
         ## adni
         elif source.rstrip('/').endswith("adni_t1_mprage"):
-            return open_adni( 
-                # annotation_path="/dhc/groups/fglippert/adni_t1_mprage/T1_3T_coronal_mni_nonlinear/adni_annotation.csv",
+            return open_adni(
                 annotation_path="/dhc/groups/fglippert/adni_t1_mprage/T1_3T_coronal_slice/T1_3T_coronal_mni_linear_hippo_resolution256/adni_linear_annotation.csv",
                 max_images=max_images,
                 which_dataset=which_dataset,
@@ -687,19 +353,8 @@ def open_dataset(source, *, dataset_name: str = None,
                     "left_hippocampus",
                     "right_hippocampus"]
             )
-        ## morpho mnist (class-wise fraction/swelling/original)
-        elif source.rstrip('/').endswith("generated"):
-            return open_morpho_mnist(path=source, max_images=max_images)
-        else:
-            return open_image_folder(source, max_images=max_images)
     elif os.path.isfile(source):
-        if os.path.basename(source) == 'cifar-10-python.tar.gz':
-            return open_cifar10(source, max_images=max_images)
-        elif os.path.basename(source) == 'train-images-idx3-ubyte.gz':
-            return open_mnist_total(source, dataset_name=dataset_name, max_images=max_images, which_dataset=which_dataset)
-        elif os.path.basename(source) == 't10k-images-idx3-ubyte.gz':
-            return open_mnist_total(source, dataset_name=dataset_name, max_images=max_images, which_dataset=which_dataset)
-        elif file_ext(source) == 'zip':
+        if file_ext(source) == 'zip':
             return open_image_zip(source, max_images=max_images)
         else:
             assert False, 'unknown archive type'
@@ -748,7 +403,6 @@ def open_dest(dest: str) -> Tuple[str, Callable[[str, Union[bytes, str]], None],
 @click.option('--annotation_path', help='Path to the annotation file', required=True, default=None)
 @click.option('--max-images', help='Output only up to `max-images` images', type=int, default=None)
 @click.option('--which_dataset', help='create data subset', required=True, default="train", type=click.Choice(['train', 'test', 'val']))
-# @click.option('--transform', help='Input crop/resize mode', type=click.Choice(['center-crop', 'center-crop-wide']))
 @click.option('--transform', help='Input crop/resize mode', default=None)
 @click.option('--resolution', help='Output resolution (e.g., \'512x512\')', metavar='WxH', type=parse_tuple)
 def convert_dataset(
@@ -767,9 +421,6 @@ def convert_dataset(
     The input dataset format is guessed from the --source argument:
 
     \b
-    --source *_lmdb/                    Load LSUN dataset
-    --source cifar-10-python.tar.gz     Load CIFAR-10 dataset
-    --source train-images-idx3-ubyte.gz Load MNIST dataset
     --source path/                      Recursively load all images from path/
     --source dataset.zip                Recursively load all images from dataset.zip
 
@@ -825,7 +476,7 @@ def convert_dataset(
 
     if dest == '':
         ctx.fail('--dest output filename or directory must not be an empty string')
-    num_files, input_iter = open_dataset(source, dataset_name=dataset_name, 
+    num_files, input_iter = open_dataset(source=source,
         annotation_path=annotation_path,
         max_images=max_images, which_dataset=which_dataset
     )
@@ -883,7 +534,12 @@ def convert_dataset(
         elif dataset_attrs != cur_image_attrs:
             err = [f'  dataset {k}/cur image {k}: {dataset_attrs[k]}/{cur_image_attrs[k]}' for k in dataset_attrs.keys()] # pylint: disable=unsubscriptable-object
             error(f'Image {archive_fname} attributes must be equal across all images of the dataset.  Got:\n' + '\n'.join(err))
-
+        
+        if dataset_name == "retinal": ## check the inverted (direction of the image)
+            direction = check_direction(img)
+            if direction == "right":
+                img = np.fliplr(img)
+                img = np.flipud(img)
         # Save the image as an uncompressed PNG.
         if dataset_name in ["adni", "ukb"]:
             save_path = os.path.join(archive_root_dir, archive_fname)
