@@ -36,9 +36,7 @@ def get_settings(dataset: str, which_source: str = None):
     return n_components, age_estimator, log_volumes
 ## select a dataset
 def set_dataset(name: str, which_source=None):
-    # DATASET = "ukb"
-    # DATASET = "oasis"
-    ## The Reihfolge (Order) of the vars should be (age, sex, [cdr], VOLS)
+    ## The Order of the vars should be (age, sex, [cdr], VOLS)
     if name == "oasis3":
         ## ------------------------------------------------------
         ## VARS are for Oasis3
@@ -48,10 +46,10 @@ def set_dataset(name: str, which_source=None):
     elif name == "ukb":
         ## VARS are for UKB
         if which_source == "source1":
-            VOLS = ["grey_matter"]
+            VOLS = ["ventricle"]
             # VOLS = ["brain"]
         elif which_source == "source2":
-            VOLS = ["ventricle"]
+            VOLS = ["grey_matter"]
         VARS = ["age"] + VOLS
         ## ------------------------------------------------------
     elif name == "adni":
@@ -76,7 +74,7 @@ def set_dataset(name: str, which_source=None):
 class CausalSampling:
     def __init__(
         self, 
-        dataset,
+        dataset, ## ukb, retinal
         label_path: str = None
     ):
         self.dataset = dataset
@@ -106,8 +104,6 @@ class CausalSampling:
         self.n_components, self.age_estimator, self.log_volumes = get_settings(self.dataset, self.which_source)
         ## we only know labels from the training set
         self._get_all_fnames()
-        # PIL.Image.init()
-        # self._image_fnames = sorted(fname for fname in self._all_fnames if self._file_ext(fname) in [PIL.Image.EXTENSION, "gz"])
         if dataset == "ukb":
             self._image_fnames = sorted(fname for fname in self._all_fnames if self._file_ext(fname) == ".gz")
         else: ## retinal
@@ -603,18 +599,3 @@ def sample_from_gmm_custom(x, indices, gmm):
         samples.append(sample)
 
     return torch.tensor(np.array(samples), dtype=torch.float)
-
-
-
-### --- for debugging ---
-### using a gaussian distribution to represent a variable
-### assume cdr without one hot vector
-### labels are with shape = (num_samples, 6)
-def gaussian_random_sample(mu=0, cov=1, num_samples=100):
-    labels = torch.zeros(size=(num_samples, 6), dtype=torch.float32)
-    for i in range(6):
-        labels[:, i] = torch.normal(
-            mean=mu, std=cov, generator=torch.Generator(), size=(num_samples, 1)
-        ).reshape(-1)
-
-    return labels
