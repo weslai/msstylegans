@@ -327,7 +327,7 @@ def open_dataset(source, *,
                  annotation_path: str = None,
                  which_dataset: str = None, max_images: Optional[int]):
     if os.path.isdir(source):
-        ## retinal (kaggle eyepac dataset)
+        ## retinal (kaggle eyepacs dataset)
         if source.rstrip('/').endswith("diabetic_retinopathy"):
             return open_kaggle_eyepacs(
                 annotation_path=annotation_path,
@@ -502,7 +502,7 @@ def convert_dataset(
         idx_str = f'{idx:08d}'
         if dataset_name in ["adni", "ukb"]:
             archive_fname = f'{idx_str[:5]}/img{idx_str}.nii.gz'
-        elif dataset_name == "retinal":
+        elif dataset_name in ["retinal", "eyepacs"]:
             archive_fname = f'{idx_str[:5]}/img{idx_str}.jpg'
         else:
             archive_fname = f'{idx_str[:5]}/img{idx_str}.png'
@@ -535,7 +535,7 @@ def convert_dataset(
             err = [f'  dataset {k}/cur image {k}: {dataset_attrs[k]}/{cur_image_attrs[k]}' for k in dataset_attrs.keys()] # pylint: disable=unsubscriptable-object
             error(f'Image {archive_fname} attributes must be equal across all images of the dataset.  Got:\n' + '\n'.join(err))
         
-        if dataset_name == "retinal": ## check the inverted (direction of the image)
+        if dataset_name == "eyepacs": ## check the inverted (direction of the image)
             direction = check_direction(img)
             if direction == "right":
                 img = np.fliplr(img)
@@ -550,7 +550,7 @@ def convert_dataset(
         else:
             img = PIL.Image.fromarray(img, { 1: 'L', 3: 'RGB' }[channels])
             image_bits = io.BytesIO()
-            if dataset_name == "retinal":
+            if dataset_name in ["retinal", "eyepacs"]:
                 img.save(image_bits, format='jpeg', compress_level=0, optimize=False)
             else:
                 img.save(image_bits, format='png', compress_level=0, optimize=False)
