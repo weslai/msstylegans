@@ -158,7 +158,6 @@ class Dataset(torch.utils.data.Dataset):
        return self._get_raw_labels().dtype == np.int64
 
 #----------------------------------------------------------------------------
-
 class ImageFolderDataset(Dataset):
     def __init__(self,
         data_name,              # Name of the dataset.
@@ -453,7 +452,7 @@ class UKBiobankMRIDataset2D(ImageFolderDataset):
             trainlabels = dict(trainlabels)
             trainlabels = [trainlabels[fname.replace("\\", "/")] for fname in self.train_image_fnames] ## a dict
 
-            new_labels = np.zeros(shape=(len(trainlabels), 2), dtype=np.float32)
+            new_labels = np.zeros(shape=(len(trainlabels), len(self.vars)), dtype=np.float32)
             for num, l in enumerate(trainlabels):
                 i = list(l[self.vars[0]].items())[0][0]
                 temp = [l[var][str(i)] for var in self.vars]
@@ -469,29 +468,29 @@ class UKBiobankMRIDataset2D(ImageFolderDataset):
         c_additional_std = np.std(np.log(labels[:, 1])) if self.log_volumes else np.std(labels[:, 1])
         if which_source == "source1":
             model.update(
-                grey_matter_mu = c_additional_mu,
-                grey_matter_std = c_additional_std
-            )
-        elif which_source == "source2":
-            model.update(
                 ventricle_mu = c_additional_mu,
                 ventricle_std = c_additional_std
             )
+        elif which_source == "source2":
+            model.update(
+                grey_matter_mu = c_additional_mu,
+                grey_matter_std = c_additional_std
+            )
         return model
 
-    def _normalise_labels(self, age, grey_matter=None, ventricle=None):
+    def _normalise_labels(self, age, ventricle=None, grey_matter=None):
         ## zero mean normalisation
         age = (age - self.model["age_min"]) / (self.model["age_max"] - self.model["age_min"])
         if self.which_source == "source1":
             if self.log_volumes:
-                grey_matter = np.log(grey_matter)
-            grey_matter = (grey_matter - self.model["grey_matter_mu"]) / self.model["grey_matter_std"]
-            samples = np.concatenate([age, grey_matter], 1)
-        elif self.which_source == "source2":
-            if self.log_volumes:
                 ventricle = np.log(ventricle)
             ventricle = (ventricle - self.model["ventricle_mu"]) / self.model["ventricle_std"]
             samples = np.concatenate([age, ventricle], 1)
+        elif self.which_source == "source2":
+            if self.log_volumes:
+                grey_matter = np.log(grey_matter)
+            grey_matter = (grey_matter - self.model["grey_matter_mu"]) / self.model["grey_matter_std"]
+            samples = np.concatenate([age, grey_matter], 1)
         return samples
 
     def _load_raw_labels(self):
@@ -506,13 +505,13 @@ class UKBiobankMRIDataset2D(ImageFolderDataset):
         labels = [labels[fname.replace("\\", "/")] for fname in self._image_fnames] ## a dict 
 
         if self.which_source == "source1":
-            self.vars = ["age", "grey_matter"]
-        elif self.which_source == "source2":
             self.vars = ["age", "ventricle"]
+        elif self.which_source == "source2":
+            self.vars = ["age", "grey_matter"]
         else:
             raise ValueError(f"No such source {self.which_source}")
 
-        new_labels = np.zeros(shape=(len(labels), 2), dtype=np.float32)
+        new_labels = np.zeros(shape=(len(labels), len(self.vars)), dtype=np.float32)
         for num, l in enumerate(labels):
             i = list(l[self.vars[0]].items())[0][0]
             temp = [l[var][str(i)] for var in self.vars]
@@ -521,12 +520,12 @@ class UKBiobankMRIDataset2D(ImageFolderDataset):
         if self.which_source == "source1":
             new_labels = self._normalise_labels(
                 age=new_labels[:, 0].reshape(-1, 1),
-                grey_matter=new_labels[:, 1].reshape(-1, 1)
+                ventricle=new_labels[:, 1].reshape(-1, 1)
             )
         elif self.which_source == "source2":
             new_labels = self._normalise_labels(
                 age=new_labels[:, 0].reshape(-1, 1),
-                ventricle=new_labels[:, 1].reshape(-1, 1)
+                grey_matter=new_labels[:, 1].reshape(-1, 1)
             )
 
         return new_labels
@@ -726,7 +725,43 @@ class MorphoMNISTDataset_causal(ImageFolderDataset):
         else:
             raise ValueError(f"No such dataset {self.data_name}")
         return new_labels
+## --------------------------------------------------------------------------
+## Extra Sources (Retinal/MRI Datasets)
+## --------------------------------------------------------------------------
+## images and labels
+class KaggleEyepacsDataset(ImageFolderDataset):
+    def __init__(
+        self, 
+        path, 
+        resolution=None,
+        mode: str = "train", ## ["train", "val", "test"]
+        data_name: str = "eyepacs",
+        **super_kwargs
+    ):
+        self.mode = mode
+        self.data_name = data_name
+        super().__init__(data_name, self.mode, path, resolution, **super_kwargs)
     
+    def _load_raw_labels(self):
+        fname = "dataset.json"
+        if fname not in self._all_fnames:
+            return None
+        with self._open_file(fname) as f:
+            labels = json.load(f)["labels"]
+        if labels is None:
+            return None
+        labels = dict(labels)
+        labels = [labels[fname.replace("\\", "/")] for fname in self._image_fnames] ## a dict 
+        self.vars = ["level"]
+
+        new_labels = np.zeros(shape=(len(labels),), dtype=np.int64)
+        for num, l in enumerate(labels):
+            i = list(l[self.vars[0]].items())[0][0]
+            temp = l[self.vars[0]][str(i)]
+            new_labels[num] = temp
+        # num_classes = len(np.unique(new_labels))
+        # new_labels = F.one_hot(torch.tensor(new_labels, dtype=torch.long), num_classes=num_classes).cpu().detach().numpy()
+        return new_labels
 ## get settings
 def get_settings(dataset: str, which_source: str = None):
     if dataset == "ukb":

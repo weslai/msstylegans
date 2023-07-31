@@ -113,7 +113,7 @@ def launch_training(c, desc, outdir, dry_run):
 def init_dataset_kwargs(data, name, use_labels, mode: str,
                         max_size: tuple = None, scenario: str = None):
     try:
-        ## for UKB
+        ## UKB, Retinal, Morpho-MNIST
         if name == "ukb":
             dataset_kwargs = dnnlib.EasyDict(
                 class_name='training.dataset.UKBiobankMRIDataset2D', 
@@ -145,15 +145,6 @@ def init_dataset_kwargs(data, name, use_labels, mode: str,
                 max_size=max_size, 
                 xflip=False,
                 include_numbers=False
-            )
-        elif name == "mnist":
-            dataset_kwargs = dnnlib.EasyDict(
-                class_name='training.dataset.ImageFolderDataset',  
-                data_name=name,          
-                path=data, 
-                use_labels=use_labels, 
-                max_size=None, 
-                xflip=False
             )
         else:
             raise click.ClickException(f'--data_name: {name} dataloader not implemented')
