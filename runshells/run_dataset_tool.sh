@@ -1,29 +1,51 @@
 #!/bin/bash
-#SBATCH --job-name=dest_ukb_multi
+#SBATCH --job-name=deyepacs
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=wei-cheng.lai@hpi.de
-#SBATCH --partition=vcpu # -p
-#SBATCH --cpus-per-task=8 # -c
-#SBATCH --mem=100gb
-#SBATCH --time=04:30:00
+#SBATCH --partition=hpcpu # -p
+#SBATCH --cpus-per-task=5 # -c
+#SBATCH --mem=30gb
+#SBATCH --time=25:30:00
 #SBATCH --output=/dhc/home/wei-cheng.lai/experiments/logs/multisources/data_tool_%j.log # %j is job id
 
 ## run dataset tool to create dataset
 
-PYTHONPATH=$PYTHONPATH:~/causal-gan/stylegan3/
+PYTHONPATH=$PYTHONPATH:~/projects/msstylegans/stylegan3/
 export PYTHONPATH
 echo $PYTHONPATH
 
+## MRI UKBiobank
+## Source1
+#srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool.py --source /dhc/projects/ukbiobank/original/imaging/brain_mri/T1_structural_brain_mri/unzipped/ --dest /dhc/groups/fglippert/Ukbiobank/imaging/brain_mri/multisources/source1 --dataset_name ukb --annotation_path /dhc/groups/fglippert/Ukbiobank/imaging/brain_mri/multisources/extract_source1.csv --which_dataset train --resolution 256x256
+#srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool.py --source /dhc/projects/ukbiobank/original/imaging/brain_mri/T1_structural_brain_mri/unzipped/ --dest /dhc/groups/fglippert/Ukbiobank/imaging/brain_mri/multisources/source1 --dataset_name ukb --annotation_path /dhc/groups/fglippert/Ukbiobank/imaging/brain_mri/multisources/extract_source1.csv --which_dataset val --resolution 256x256
+#srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool.py --source /dhc/projects/ukbiobank/original/imaging/brain_mri/T1_structural_brain_mri/unzipped/ --dest /dhc/groups/fglippert/Ukbiobank/imaging/brain_mri/multisources/source1 --dataset_name ukb --annotation_path /dhc/groups/fglippert/Ukbiobank/imaging/brain_mri/multisources/extract_source1.csv --which_dataset test --resolution 256x256
+## Source2
+#srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool.py --source /dhc/projects/ukbiobank/original/imaging/brain_mri/T1_structural_brain_mri/unzipped/ --dest /dhc/groups/fglippert/Ukbiobank/imaging/brain_mri/multisources/source2 --dataset_name ukb --annotation_path /dhc/groups/fglippert/Ukbiobank/imaging/brain_mri/multisources/extract_source2.csv --which_dataset train --resolution 256x256
+#srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool.py --source /dhc/projects/ukbiobank/original/imaging/brain_mri/T1_structural_brain_mri/unzipped/ --dest /dhc/groups/fglippert/Ukbiobank/imaging/brain_mri/multisources/source2 --dataset_name ukb --annotation_path /dhc/groups/fglippert/Ukbiobank/imaging/brain_mri/multisources/extract_source2.csv --which_dataset val --resolution 256x256
+#srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool.py --source /dhc/projects/ukbiobank/original/imaging/brain_mri/T1_structural_brain_mri/unzipped/ --dest /dhc/groups/fglippert/Ukbiobank/imaging/brain_mri/multisources/source2 --dataset_name ukb --annotation_path /dhc/groups/fglippert/Ukbiobank/imaging/brain_mri/multisources/extract_source2.csv --which_dataset test --resolution 256x256
+
+### UKBiobank
+## Retinal
+## source1
+#srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool.py --source /dhc/projects/ukbiobank/derived/imaging/retinal_fundus --dest /dhc/groups/fglippert/Ukbiobank/imaging/retinal_fundus/multisources/source1 --dataset_name retinal --which_dataset train --resolution 256x256 --annotation_path /dhc/groups/fglippert/Ukbiobank/imaging/retinal_fundus/multisources/phenotype_source0.csv
+
+#srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool.py --source /dhc/projects/ukbiobank/derived/imaging/retinal_fundus --dest /dhc/groups/fglippert/Ukbiobank/imaging/retinal_fundus/multisources/source1 --dataset_name retinal --which_dataset val --resolution 256x256 --annotation_path /dhc/groups/fglippert/Ukbiobank/imaging/retinal_fundus/multisources/phenotype_source0.csv
+
+#srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool.py --source /dhc/projects/ukbiobank/derived/imaging/retinal_fundus --dest /dhc/groups/fglippert/Ukbiobank/imaging/retinal_fundus/multisources/source1 --dataset_name retinal --which_dataset test --resolution 256x256 --annotation_path /dhc/groups/fglippert/Ukbiobank/imaging/retinal_fundus/multisources/phenotype_source0.csv
+## source2
+#srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool.py --source /dhc/projects/ukbiobank/derived/imaging/retinal_fundus --dest /dhc/groups/fglippert/Ukbiobank/imaging/retinal_fundus/multisources/source2 --dataset_name retinal --which_dataset train --resolution 256x256 --annotation_path /dhc/groups/fglippert/Ukbiobank/imaging/retinal_fundus/multisources/phenotype_source1.csv
+
+#srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool.py --source /dhc/projects/ukbiobank/derived/imaging/retinal_fundus --dest /dhc/groups/fglippert/Ukbiobank/imaging/retinal_fundus/multisources/source2 --dataset_name retinal --which_dataset val --resolution 256x256 --annotation_path /dhc/groups/fglippert/Ukbiobank/imaging/retinal_fundus/multisources/phenotype_source1.csv
+
+#srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool.py --source /dhc/projects/ukbiobank/derived/imaging/retinal_fundus --dest /dhc/groups/fglippert/Ukbiobank/imaging/retinal_fundus/multisources/source2 --dataset_name retinal --which_dataset test --resolution 256x256 --annotation_path /dhc/groups/fglippert/Ukbiobank/imaging/retinal_fundus/multisources/phenotype_source1.csv
+
 ### UKBiobank
 #srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/utils.py
-srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool.py --source /dhc/projects/ukbiobank/original/imaging/brain_mri/T1_structural_brain_mri/unzipped --dest /dhc/groups/fglippert/Ukbiobank/imaging/brain_mri/multisources/T1_3T_coronal_mni_linear_freesurfer_resolution256_source2 --dataset_name ukb --which_dataset train --resolution 256x256
+#srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool.py --source /dhc/projects/ukbiobank/derived/imaging/retinal_fundus --dest /dhc/groups/fglippert/Ukbiobank/imaging/retinal_fundus/multisources/source2 --dataset_name retinal --which_dataset train --resolution 256x256
 
-srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool.py --source /dhc/projects/ukbiobank/original/imaging/brain_mri/T1_structural_brain_mri/unzipped --dest /dhc/groups/fglippert/Ukbiobank/imaging/brain_mri/multisources/T1_3T_coronal_mni_linear_freesurfer_resolution256_source2 --dataset_name ukb --which_dataset val --resolution 256x256
+#srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool.py --source /dhc/projects/ukbiobank/original/imaging/brain_mri/T1_structural_brain_mri/unzipped --dest /dhc/groups/fglippert/Ukbiobank/imaging/brain_mri/multisources/T1_3T_coronal_mni_linear_freesurfer_resolution256_source2 --dataset_name ukb --which_dataset val --resolution 256x256
 
-srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool.py --source /dhc/projects/ukbiobank/original/imaging/brain_mri/T1_structural_brain_mri/unzipped --dest /dhc/groups/fglippert/Ukbiobank/imaging/brain_mri/multisources/T1_3T_coronal_mni_linear_freesurfer_resolution256_source2 --dataset_name ukb --which_dataset test --resolution 256x256
-
-### Oasis3
-#srun --ntasks=1 ~/conda3/envs/stylegan3/bin/python ../stylegan3/dataset_tool.py --source /dhc/groups/fglippert/Oasis3 --dest /dhc/groups/fglippert/Oasis3/t1_coronal_mni_re256 --resolution=256x256
+#srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool.py --source /dhc/projects/ukbiobank/original/imaging/brain_mri/T1_structural_brain_mri/unzipped --dest /dhc/groups/fglippert/Ukbiobank/imaging/brain_mri/multisources/T1_3T_coronal_mni_linear_freesurfer_resolution256_source2 --dataset_name ukb --which_dataset test --resolution 256x256
 
 ### Adni
 #srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool.py --source /dhc/groups/fglippert/adni_t1_mprage --dest /dhc/groups/fglippert/adni_t1_mprage/T1_3T_coronal_slice/T1_3T_coronal_mni_linear_hippo_resolution256 --dataset_name adni --which_dataset train --resolution 256x256
@@ -32,33 +54,30 @@ srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_too
 
 #srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool.py --source /dhc/groups/fglippert/adni_t1_mprage --dest /dhc/groups/fglippert/adni_t1_mprage/T1_3T_coronal_slice/T1_3T_coronal_mni_linear_hippo_resolution256 --dataset_name adni --which_dataset test --resolution 256x256
 
-### MorphoMNIST
-## mnist (morphomnist) - in StyleGAN3 framework
-#srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool.py --source /dhc/groups/fglippert/MorphoMNIST/thickness_intensity/t10k-images-idx3-ubyte.gz --dest /dhc/groups/fglippert/MorphoMNIST/thick_intensity_causal_test --resolution=32x32
-
-## mnist - in StyleGAN3 framework
-#srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool.py --source /dhc/home/wei-cheng.lai/data/MNIST/raw/t10k-images-idx3-ubyte.gz --dest /dhc/home/wei-cheng.lai/data/MNIST/mnist/ --is_trainset 0 --resolution=32x32
-
-## Thickness intensity
-#srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool.py --source /dhc/groups/fglippert/MorphoMNIST/thickness_intensity/train-images-idx3-ubyte.gz --dest /dhc/groups/fglippert/MorphoMNIST/mnist_thickness_intensity --dataset_name mnist-thickness-intensity --which_dataset train --resolution=32x32
-
-#srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool.py --source /dhc/groups/fglippert/MorphoMNIST/thickness_intensity/train-images-idx3-ubyte.gz --dest /dhc/groups/fglippert/MorphoMNIST/mnist_thickness_intensity --dataset_name mnist-thickness-intensity --which_dataset val --resolution=32x32
-
-#srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool.py --source /dhc/groups/fglippert/MorphoMNIST/thickness_intensity/t10k-images-idx3-ubyte.gz --dest /dhc/groups/fglippert/MorphoMNIST/mnist_thickness_intensity --dataset_name mnist-thickness-intensity --which_dataset test --resolution=32x32
-
-## Thickness slant
-#srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool.py --source /dhc/groups/fglippert/MorphoMNIST/mnist_instances/thickness_slant/train-images-idx3-ubyte.gz --dest /dhc/groups/fglippert/MorphoMNIST/mnist_instances/mnist_thickness_slant --dataset_name mnist-thickness-slant --which_dataset train --resolution=32x32
-
-#srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool.py --source /dhc/groups/fglippert/MorphoMNIST/mnist_instances/thickness_slant/train-images-idx3-ubyte.gz --dest /dhc/groups/fglippert/MorphoMNIST/mnist_instances/mnist_thickness_slant --dataset_name mnist-thickness-slant --which_dataset val --resolution=32x32
-
-#srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool.py --source /dhc/groups/fglippert/MorphoMNIST/mnist_instances/thickness_slant/t10k-images-idx3-ubyte.gz --dest /dhc/groups/fglippert/MorphoMNIST/mnist_instances/mnist_thickness_slant --dataset_name mnist-thickness-slant --which_dataset test --resolution=32x32
-
-## MRI mask segmentation
-#srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/evaluations/segmentation/dataset_tool_mri_masks.py --dataset_name $1 --annotation_path $2 --dir_path $3 --dest $4 
 
 ## Thickness Slant Dataset 
 ## Causal Thickness to slant
 #srun --ntasks=1 ~/conda3/envs/deepscm/bin/python ../deepscm/main/datasets/morphomnist/create_synth_thickness_slant_data.py --data-dir /dhc/home/wei-cheng.lai/data/MNIST/morphomnist_global -o /dhc/groups/fglippert/MorphoMNIST/mnist_instances/thickness_slant
+
+## Thickness Intensity Slant dataset
+#srun --ntasks=1 ~/conda3/envs/deepscm/bin/python ../deepscm/main/datasets/morphomnist/create_synth_thickness_intensity_slant_data.py --data-dir /dhc/home/wei-cheng.lai/data/MNIST/morphomnist_global -o /dhc/groups/fglippert/MorphoMNIST/mnist_instances/thickness_intensity_slant
+
+#srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool.py --source /dhc/groups/fglippert/MorphoMNIST/mnist_instances/thickness_intensity_slant_new/train-images-idx3-ubyte.gz --dest /dhc/groups/fglippert/MorphoMNIST/mnist_instances/mnist_thickness_intensity_slant --dataset_name mnist-thickness-intensity-slant --which_dataset train --resolution 32x32 --annotation_path None
+
+#srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool.py --source /dhc/groups/fglippert/MorphoMNIST/mnist_instances/thickness_intensity_slant_new/t10k-images-idx3-ubyte.gz --dest /dhc/groups/fglippert/MorphoMNIST/mnist_instances/mnist_thickness_intensity_slant --dataset_name mnist-thickness-intensity-slant --which_dataset test --resolution 32x32 --annotation_path None
+
+#srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool_split_source.py --source /dhc/groups/fglippert/MorphoMNIST/mnist_instances/mnist_thickness_intensity_slant/trainset/ --dest /dhc/groups/fglippert/MorphoMNIST/mnist_instances/source1/ --dataset_name mnist-thickness-intensity-slant --which_dataset train --resolution 32x32 --annotation_path /dhc/groups/fglippert/MorphoMNIST/mnist_instances/mnist_thickness_intensity_slant/trainset/source1.json
+
+#srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool_split_source.py --source /dhc/groups/fglippert/MorphoMNIST/mnist_instances/mnist_thickness_intensity_slant/trainset/ --dest /dhc/groups/fglippert/MorphoMNIST/mnist_instances/source1/ --dataset_name mnist-thickness-intensity-slant --which_dataset val --resolution 32x32 --annotation_path /dhc/groups/fglippert/MorphoMNIST/mnist_instances/mnist_thickness_intensity_slant/trainset/source1.json
+
+#srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool_split_source.py --source /dhc/groups/fglippert/MorphoMNIST/mnist_instances/mnist_thickness_intensity_slant/testset/ --dest /dhc/groups/fglippert/MorphoMNIST/mnist_instances/source1/ --dataset_name mnist-thickness-intensity-slant --which_dataset test --resolution 32x32 --annotation_path /dhc/groups/fglippert/MorphoMNIST/mnist_instances/mnist_thickness_intensity_slant/testset/source1.json
+
+#srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool_split_source.py --source /dhc/groups/fglippert/MorphoMNIST/mnist_instances/mnist_thickness_intensity_slant/trainset/ --dest /dhc/groups/fglippert/MorphoMNIST/mnist_instances/source2/ --dataset_name mnist-thickness-intensity-slant --which_dataset train --resolution 32x32 --annotation_path /dhc/groups/fglippert/MorphoMNIST/mnist_instances/mnist_thickness_intensity_slant/trainset/source2.json
+
+#srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool_split_source.py --source /dhc/groups/fglippert/MorphoMNIST/mnist_instances/mnist_thickness_intensity_slant/trainset/ --dest /dhc/groups/fglippert/MorphoMNIST/mnist_instances/source2/ --dataset_name mnist-thickness-intensity-slant --which_dataset val --resolution 32x32 --annotation_path /dhc/groups/fglippert/MorphoMNIST/mnist_instances/mnist_thickness_intensity_slant/trainset/source2.json
+
+#srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool_split_source.py --source /dhc/groups/fglippert/MorphoMNIST/mnist_instances/mnist_thickness_intensity_slant/testset/ --dest /dhc/groups/fglippert/MorphoMNIST/mnist_instances/source2/ --dataset_name mnist-thickness-intensity-slant --which_dataset test --resolution 32x32 --annotation_path /dhc/groups/fglippert/MorphoMNIST/mnist_instances/mnist_thickness_intensity_slant/testset/source2.json
+
 
 ## Thickness pure
 #srun --ntasks=1 ~/conda3/envs/deepscm/bin/python ../deepscm/main/datasets/morphomnist/create_synth_thickness_intensity_data.py --data-dir /dhc/home/wei-cheng.lai/data/MNIST/morphomnist_global -o /dhc/groups/fglippert/MorphoMNIST/mnist_instances/thickness --with_intensity 0
@@ -80,3 +99,12 @@ srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_too
 
 ## Thickness-width
 #srun --ntasks=1 ~/conda3/envs/deepscm/bin/python ../deepscm/main/datasets/morphomnist/create_synth_thickness_width_data.py --data-dir /dhc/home/wei-cheng.lai/data/MNIST/morphomnist_global -o /dhc/groups/fglippert/MorphoMNIST/mnist_instances/thickness_width --with_width 1
+
+###########################################################################
+## Extra sources
+
+## Kaggle Eyepacs
+#srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool_extrasources.py --source /dhc/dsets/diabetic_retinopathy --dest /dhc/groups/fglippert/kaggle_eyepacs_diabetic --dataset_name retinal --annotation_path /dhc/dsets/diabetic_retinopathy/trainLabels.csv.zip --which_dataset train --resolution 256x256
+#srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool_extrasources.py --source /dhc/dsets/diabetic_retinopathy --dest /dhc/groups/fglippert/kaggle_eyepacs_diabetic --dataset_name retinal --annotation_path /dhc/dsets/diabetic_retinopathy/trainLabels.csv.zip --which_dataset val --resolution 256x256
+srun --ntasks=1 ~/conda3/envs/stylegan3_test/bin/python ../stylegan3/dataset_tool_extrasources.py --source /dhc/dsets/diabetic_retinopathy --dest /dhc/groups/fglippert/kaggle_eyepacs_diabetic --dataset_name retinal --annotation_path /dhc/home/wei-cheng.lai/data/diabetic_retinopathy/testLabels.csv.zip --which_dataset test --resolution 256x256
+
