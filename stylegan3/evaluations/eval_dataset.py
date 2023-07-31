@@ -340,7 +340,7 @@ class UKBiobankMRIDataset2D(ImageFolderDataset):
             trainlabels = dict(trainlabels)
             trainlabels = [trainlabels[fname.replace("\\", "/")] for fname in self.train_image_fnames] ## a dict
 
-            new_labels = np.zeros(shape=(len(trainlabels), 3), dtype=np.float32)
+            new_labels = np.zeros(shape=(len(trainlabels), len(self.vars)), dtype=np.float32)
             for num, l in enumerate(trainlabels):
                 i = list(l[self.vars[0]].items())[0][0]
                 temp = [l[var][str(i)] for var in self.vars]
@@ -352,23 +352,23 @@ class UKBiobankMRIDataset2D(ImageFolderDataset):
             age_std = np.std(labels[:, 0]),
             age_min = np.min(labels[:, 0]),
             age_max = np.max(labels[:, 0]),
-            grey_matter_mu = np.mean(np.log(labels[:, 1])) if self.log_volumes_source1 else np.mean(labels[:, 1]),
-            grey_matter_std = np.std(np.log(labels[:, 1])) if self.log_volumes_source1 else np.std(labels[:, 1]),
-            ventricle_mu = np.mean(np.log(labels[:, 2])) if self.log_volumes_source2 else np.mean(labels[:, 2]),
-            ventricle_std = np.std(np.log(labels[:, 2])) if self.log_volumes_source2 else np.std(labels[:, 2]),
+            ventricle_mu = np.mean(np.log(labels[:, 1])) if self.log_volumes_source1 else np.mean(labels[:, 1]),
+            ventricle_std = np.std(np.log(labels[:, 1])) if self.log_volumes_source1 else np.std(labels[:, 1]),
+            grey_matter_mu = np.mean(np.log(labels[:, 2])) if self.log_volumes_source2 else np.mean(labels[:, 2]),
+            grey_matter_std = np.std(np.log(labels[:, 2])) if self.log_volumes_source2 else np.std(labels[:, 2]),
         )
         return model
 
-    def _normalise_labels(self, age, grey_matter=None, ventricle=None):
+    def _normalise_labels(self, age, ventricle=None, grey_matter=None):
         ## zero mean normalisation
         age = (age - self.model["age_min"]) / (self.model["age_max"] - self.model["age_min"])
         if self.log_volumes_source1:
-            grey_matter = np.log(grey_matter)
-        grey_matter = (grey_matter - self.model["grey_matter_mu"]) / self.model["grey_matter_std"]
-        if self.log_volumes_source2:
             ventricle = np.log(ventricle)
         ventricle = (ventricle - self.model["ventricle_mu"]) / self.model["ventricle_std"]
-        samples = np.concatenate([age, grey_matter, ventricle], 1)
+        if self.log_volumes_source2:
+            grey_matter = np.log(grey_matter)
+        grey_matter = (grey_matter - self.model["grey_matter_mu"]) / self.model["grey_matter_std"]
+        samples = np.concatenate([age, ventricle, grey_matter], 1)
         return samples
 
     def _load_raw_labels(self):
@@ -381,9 +381,9 @@ class UKBiobankMRIDataset2D(ImageFolderDataset):
             return None
         labels = dict(labels)
         labels = [labels[fname.replace("\\", "/")] for fname in self._image_fnames] ## a dict 
-        self.vars = ["age", "grey_matter", "ventricle"]
+        self.vars = ["age", "ventricle", "grey_matter"]
 
-        new_labels = np.zeros(shape=(len(labels), 3), dtype=np.float32)
+        new_labels = np.zeros(shape=(len(labels), len(self.vars)), dtype=np.float32)
         for num, l in enumerate(labels):
             i = list(l[self.vars[0]].items())[0][0]
             temp = [l[var][str(i)] for var in self.vars]
@@ -391,8 +391,8 @@ class UKBiobankMRIDataset2D(ImageFolderDataset):
         self.model = self._get_mu_std(new_labels)
         self.new_labels_norm = self._normalise_labels(
             age=new_labels[:, 0].reshape(-1, 1),
-            grey_matter=new_labels[:, 1].reshape(-1, 1),
-            ventricle=new_labels[:, 2].reshape(-1, 1)
+            ventricle=new_labels[:, 1].reshape(-1, 1),
+            grey_matter=new_labels[:, 2].reshape(-1, 1)
         )
         return new_labels
     
@@ -423,7 +423,7 @@ class UKBiobankMRIDataset2D_single(ImageFolderDataset):
             if s.startswith("source"):
                 self.which_source = s
                 break
-        self.log_volumes = get_settings(data_name, self.which_source)
+        self.log_volumes = get_settings_sourcebased(data_name, self.which_source)
 
         super().__init__(data_name, self.mode, path, resolution, **super_kwargs)
     
@@ -448,7 +448,7 @@ class UKBiobankMRIDataset2D_single(ImageFolderDataset):
             trainlabels = dict(trainlabels)
             trainlabels = [trainlabels[fname.replace("\\", "/")] for fname in self.train_image_fnames] ## a dict
 
-            new_labels = np.zeros(shape=(len(trainlabels), 2), dtype=np.float32)
+            new_labels = np.zeros(shape=(len(trainlabels), len(self.vars)), dtype=np.float32)
             for num, l in enumerate(trainlabels):
                 i = list(l[self.vars[0]].items())[0][0]
                 temp = [l[var][str(i)] for var in self.vars]
@@ -466,29 +466,29 @@ class UKBiobankMRIDataset2D_single(ImageFolderDataset):
 
         if which_source == "source1":
             model.update(
-                grey_matter_mu = c_additional_mu,
-                grey_matter_std = c_additional_std
-            )
-        elif which_source == "source2":
-            model.update(
                 ventricle_mu = c_additional_mu,
                 ventricle_std = c_additional_std
             )
+        elif which_source == "source2":
+            model.update(
+                grey_matter_mu = c_additional_mu,
+                grey_matter_std = c_additional_std
+            )
         return model
 
-    def _normalise_labels(self, age, grey_matter=None, ventricle=None):
+    def _normalise_labels(self, age, ventricle=None, grey_matter=None):
         ## zero mean normalisation
         age = (age - self.model["age_min"]) / (self.model["age_max"] - self.model["age_min"])
         if self.which_source == "source1":
             if self.log_volumes:
-                grey_matter = np.log(grey_matter)
-            grey_matter = (grey_matter - self.model["grey_matter_mu"]) / self.model["grey_matter_std"]
-            samples = np.concatenate([age, grey_matter], 1)
-        elif self.which_source == "source2":
-            if self.log_volumes:
                 ventricle = np.log(ventricle)
             ventricle = (ventricle - self.model["ventricle_mu"]) / self.model["ventricle_std"]
             samples = np.concatenate([age, ventricle], 1)
+        elif self.which_source == "source2":
+            if self.log_volumes:
+                grey_matter = np.log(grey_matter)
+            grey_matter = (grey_matter - self.model["grey_matter_mu"]) / self.model["grey_matter_std"]
+            samples = np.concatenate([age, grey_matter], 1)
         return samples
 
     def _load_raw_labels(self):
@@ -503,13 +503,13 @@ class UKBiobankMRIDataset2D_single(ImageFolderDataset):
         labels = [labels[fname.replace("\\", "/")] for fname in self._image_fnames] ## a dict 
 
         if self.which_source == "source1":
-            self.vars = ["age", "grey_matter"]
-        elif self.which_source == "source2":
             self.vars = ["age", "ventricle"]
+        elif self.which_source == "source2":
+            self.vars = ["age", "grey_matter"]
         else:
             raise ValueError(f"No such source {self.which_source}")
 
-        new_labels = np.zeros(shape=(len(labels), 2), dtype=np.float32)
+        new_labels = np.zeros(shape=(len(labels), len(self.vars)), dtype=np.float32)
         for num, l in enumerate(labels):
             i = list(l[self.vars[0]].items())[0][0]
             temp = [l[var][str(i)] for var in self.vars]
@@ -518,14 +518,13 @@ class UKBiobankMRIDataset2D_single(ImageFolderDataset):
         if self.which_source == "source1":
             self.new_labels_norm = self._normalise_labels(
                 age=new_labels[:, 0].reshape(-1, 1),
-                grey_matter=new_labels[:, 1].reshape(-1, 1)
+                ventricle=new_labels[:, 1].reshape(-1, 1)
             )
         elif self.which_source == "source2":
             self.new_labels_norm = self._normalise_labels(
                 age=new_labels[:, 0].reshape(-1, 1),
-                ventricle=new_labels[:, 1].reshape(-1, 1)
+                grey_matter=new_labels[:, 1].reshape(-1, 1)
             )
-
         return new_labels
     
     def get_norm_label(self, idx):
@@ -901,7 +900,7 @@ class UKBiobankRetinalDataset2D_single(ImageFolderDataset):
             if s.startswith("source"):
                 self.which_source = s
                 break
-        self.log_volumes = get_settings(data_name, self.which_source)
+        self.log_volumes = get_settings_sourcebased(data_name, self.which_source)
 
         super().__init__(data_name, self.mode, path, resolution, **super_kwargs)
     
@@ -1017,7 +1016,7 @@ class UKBiobankRetinalDataset2D_single(ImageFolderDataset):
         return label.copy()
     
 ## get settings
-def get_settings(dataset: str, which_source: str = None):
+def get_settings_sourcebased(dataset: str, which_source: str = None):
     if dataset == "ukb":
         log_volumes = True
     elif dataset == "adni":
@@ -1026,7 +1025,7 @@ def get_settings(dataset: str, which_source: str = None):
         if which_source == "source1":
             log_volumes = True
         elif which_source == "source2":
-            log_volumes = False
+            log_volumes = True
     return log_volumes
 
 ## get settings
