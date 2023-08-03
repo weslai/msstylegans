@@ -75,7 +75,7 @@ def get_covs(dataset):
               default=None, show_default=True)
 @click.option('--data-path1', 'data_path1', type=str, help='Path to the data source 1', required=True)
 @click.option('--data-path2', 'data_path2', type=str, help='Path to the data source 2', required=True)
-# @click.option('--seeds', type=parse_range, help='List of random seeds (e.g., \'0,1,4-6\')', required=True)
+@click.option('--num-plots', 'num_plots', type=int, help='Number of plots', default=1, show_default=True)
 @click.option('--trunc', 'truncation_psi', type=float, help='Truncation psi', default=0.9, show_default=True)
 @click.option('--noise-mode', 'noise_mode', help='Noise mode', type=click.Choice(['const', 'random', 'none']), 
               default='const', show_default=True)
@@ -90,6 +90,7 @@ def run_visualizer_neg_pos_covs(
     dataset: str,
     data_path1: str,
     data_path2: str,
+    num_plots: int,
     truncation_psi: float,
     noise_mode: str,
     translate: Tuple[float,float],
@@ -109,8 +110,7 @@ def run_visualizer_neg_pos_covs(
         --network=https://api.ngc.nvidia.com/v2/models/nvidia/research/stylegan3/versions/1/files/stylegan3-t-metfacesu-1024x1024.pkl
     """
     device = torch.device('cuda')
-    num_images = 12
-    num_labels = 6
+    num_images = 5
     # Load the network.
     Gen = load_generator(
         network_pkl=None,
@@ -176,55 +176,56 @@ def run_visualizer_neg_pos_covs(
         pass
     
     # Generate images.
-    real_dict = {}
-    gen_dict = {}
-    num = 0
-    for which, labels in enumerate([min_all_labels_idxs, max_labels_1_idxs, max_labels_2_idxs, max_all_labels_idxs]):
-        real_images = []
-        gen_images = []
-        for seed_idx, idx in enumerate(labels):
-            # print('Generating image for seed %d (%d/%d) ...' % (seed, seed_idx, len(seeds)))
-            seed = np.random.randint(0, 100000)
-            z = torch.from_numpy(np.random.RandomState(seed).randn(1, Gen.z_dim)).to(device)
-            if idx < len_labels1:
-                real_img, real_label = ds1[idx]
-                real_label = ds1.get_norm_label(idx)
-            else:
-                real_img, real_label = ds2[idx-len_labels1]
-                real_label = ds2.get_norm_label(idx-len_labels1)
-            l = torch.tensor(real_label).reshape(1, -1).to(device)
-            if which == 0:
-                l[0, 1], l[0, 2] = l[0, 1] - 2, l[0, 2] - 2
-            elif which == 1:
-                l[0, 1], l[0, 2] = l[0, 1] - 2, l[0, 2] + 2
-            elif which == 2:
-                l[0, 1], l[0, 2] = l[0, 1] + 2, l[0, 2] - 2
-            elif which == 3:
-                l[0, 1], l[0, 2] = l[0, 1] + 2, l[0, 2] + 2
-            img = generate_images(Gen, z, l, truncation_psi, noise_mode, translate, rotate)
-            real_img = torch.tensor(real_img.transpose(1, 2, 0)).unsqueeze(0)
-            real_images.append(real_img)
-            gen_images.append(img)
-        real_imgs = torch.cat(real_images, dim=0)
-        imgs = torch.cat(gen_images, dim=0)
-        real_dict[str(num)] = real_imgs
-        gen_dict[str(num)] = imgs
-        num += 1
-        if group_by == "c1":
-            y_name = get_covs(dataset)["c2"]
-            x_name = get_covs(dataset)["c3"]
-        elif group_by == "c2":
-            y_name = get_covs(dataset)["c1"]
-            x_name = get_covs(dataset)["c3"]
-        elif group_by == "c3":
-            y_name = get_covs(dataset)["c1"]
-            y_name = get_covs(dataset)["c2"]
-    plot_negpos_images(real_images=real_dict,
-                        gen_images=gen_dict,
-                        dataset_name=dataset,
-                        c2_name=y_name, c3_name=x_name,
-                        save_path=f'{outdir}/seed.png',
-                        single_source=False)
+    for i in range(num_plots):
+        real_dict = {}
+        gen_dict = {}
+        num = 0
+        for which, labels in enumerate([min_all_labels_idxs, max_labels_1_idxs, max_labels_2_idxs, max_all_labels_idxs]):
+            real_images = []
+            gen_images = []
+            for seed_idx, idx in enumerate(labels):
+                # print('Generating image for seed %d (%d/%d) ...' % (seed, seed_idx, len(seeds)))
+                seed = np.random.randint(0, 100000)
+                z = torch.from_numpy(np.random.RandomState(seed).randn(1, Gen.z_dim)).to(device)
+                if idx < len_labels1:
+                    real_img, real_label = ds1[idx]
+                    real_label = ds1.get_norm_label(idx)
+                else:
+                    real_img, real_label = ds2[idx-len_labels1]
+                    real_label = ds2.get_norm_label(idx-len_labels1)
+                l = torch.tensor(real_label).reshape(1, -1).to(device)
+                if which == 0:
+                    l[0, 1], l[0, 2] = l[0, 1] - 0.5, l[0, 2] - 0.5
+                elif which == 1:
+                    l[0, 1], l[0, 2] = l[0, 1] - 0.5, l[0, 2] + 0.5
+                elif which == 2:
+                    l[0, 1], l[0, 2] = l[0, 1] + 0.5, l[0, 2] - 0.5
+                elif which == 3:
+                    l[0, 1], l[0, 2] = l[0, 1] + 0.5, l[0, 2] + 0.5
+                img = generate_images(Gen, z, l, truncation_psi, noise_mode, translate, rotate)
+                real_img = torch.tensor(real_img.transpose(1, 2, 0)).unsqueeze(0)
+                real_images.append(real_img)
+                gen_images.append(img)
+            real_imgs = torch.cat(real_images, dim=0)
+            imgs = torch.cat(gen_images, dim=0)
+            real_dict[str(num)] = real_imgs
+            gen_dict[str(num)] = imgs
+            num += 1
+            if group_by == "c1":
+                y_name = get_covs(dataset)["c2"]
+                x_name = get_covs(dataset)["c3"]
+            elif group_by == "c2":
+                y_name = get_covs(dataset)["c1"]
+                x_name = get_covs(dataset)["c3"]
+            elif group_by == "c3":
+                y_name = get_covs(dataset)["c1"]
+                y_name = get_covs(dataset)["c2"]
+        plot_negpos_images(real_images=real_dict,
+                            gen_images=gen_dict,
+                            dataset_name=dataset,
+                            c2_name=y_name, c3_name=x_name,
+                            save_path=f'{outdir}/seed{i}.png',
+                            single_source=False)
 
 ## --- run ---
 if __name__ == "__main__":

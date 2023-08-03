@@ -105,13 +105,13 @@ def plot_negpos_images(
             c3_name = "brain" if dataset_name.split("_")[-1] == "source1" else "ventricles"
         elif dataset_name.split("_")[0] == "retinal":
             c2_name = "age"
-            c3_name = "systolic bp" if dataset_name.split("_")[-1] == "source1" else "cylindrical power"
+            c3_name = "diastolic bp" if dataset_name.split("_")[-1] == "source1" else "spherical power"
             dataset_name = "retinal"
-    fig = plt.figure(figsize=(32, 16))
+    fig = plt.figure(figsize=(24, 8))
     for i in range(4):
         reimgs = real_images[str(i)].cpu().detach().numpy()
         genimgs = gen_images[str(i)].cpu().detach().numpy()
-        nrows = 2
+        nrows = 1
         ncols = int(gen_images[str(i)].shape[0] // nrows)
         gs = gridspec.GridSpec(nrows, ncols,
             wspace=0.0, hspace=0.0
@@ -147,17 +147,20 @@ def plot_negpos_images(
                     img = genimgs[i * ncols + j][:, :, 0]
                     ax1.imshow(img, cmap="gray", vmin=0, vmax=255)
                 if j == 0:
-                    ax.set_ylabel("Real", fontsize=8)
-                    ax1.set_ylabel("Generated", fontsize=8)
+                    ax.set_ylabel("Real", fontsize=12)
+                    ax1.set_ylabel("Generated", fontsize=12)
                 # if i == nrows - 1:
                 #     ax.set_xlabel("{:.2f}".format(c3[j][0]), fontsize=8)
                 ax.set_xticklabels([])
                 ax.set_yticklabels([])
                 ax1.set_xticklabels([])
                 ax1.set_yticklabels([])
-    fig.suptitle("Most Negative images                      Most Postive images", fontsize=14)
-    fig.supxlabel(f"c3: {c3_name}", fontsize=14)
-    fig.supylabel(f"c2: {c2_name}", fontsize=14)
+    fig.suptitle("Most Negative images                                 Most Postive images", fontsize=18)
+    fig.supxlabel(f"c3: {c3_name}", fontsize=18)
+    fig.supylabel(f"c2: {c2_name}", fontsize=18)
+    # xmin, xmax, ymin, ymax = plt.axis()
+    # plt.hlines(y=(ymin+ymax)/2, xmin=xmin + 2, xmax=xmax - 2, linewidth=2, color='k')
+    # plt.vlines(x=(xmin+xmax)/2, ymin=ymin + 2, ymax=ymax - 2, linewidth=2, color='k')
     if save_path is not None:
         plt.savefig(save_path)
         save_path = save_path.replace(".png", ".pdf")

@@ -66,14 +66,11 @@ def get_covs(dataset):
 #----------------------------------------------------------------------------
 
 @click.command()
-@click.option('--network', 'metric_jsonl', help='Metric jsonl file for one training', required=True)
-# @click.option('--label-mode', 'label_mode', type=click.Choice(['test', 'sampling']), 
-#               default='test', show_default=True)
+@click.option('--network_pkl', 'network_pkl', help='Network pickle filename', default=None)
+@click.option('--network', 'metric_jsonl', help='Metric jsonl file for one training', default=None)
 @click.option('--group-by', 'group_by', type=str, default="c1", show_default=True)
-@click.option('--dataset', 'dataset', type=click.Choice(['mnist-thickness-intensity', 'mnist-thickness-slant', 
-                                                         'mnist-thickness-intensity-slant', 'ukb', 
-                                                         'retinal', None]),
-              default=None, show_default=True)
+@click.option('--dataset', 'dataset', type=click.Choice(['mnist-thickness-intensity-slant', 'ukb', 
+                                                         'retinal', None]), default=None, show_default=True)
 @click.option('--data-path1', 'data_path1', type=str, help='Path to the data source 1', required=True)
 @click.option('--data-path2', 'data_path2', type=str, help='Path to the data source 2', required=True)
 @click.option('--seeds', type=parse_range, help='List of random seeds (e.g., \'0,1,4-6\')', required=True)
@@ -86,6 +83,7 @@ def get_covs(dataset):
               show_default=True, metavar='ANGLE')
 @click.option('--outdir', help='Where to save the output images', type=str, required=True, metavar='DIR')
 def run_visualizer_two_covs(
+    network_pkl: str,
     metric_jsonl: str,
     group_by: str,
     dataset: str,
@@ -111,10 +109,10 @@ def run_visualizer_two_covs(
         --network=https://api.ngc.nvidia.com/v2/models/nvidia/research/stylegan3/versions/1/files/stylegan3-t-metfacesu-1024x1024.pkl
     """
     device = torch.device('cuda')
-    num_labels = 5
+    num_labels = 3
     # Load the network.
     Gen = load_generator(
-        network_pkl=None,
+        network_pkl=network_pkl,
         metric_jsonl=metric_jsonl,
         use_cuda=True
     )
@@ -145,9 +143,8 @@ def run_visualizer_two_covs(
                                       use_labels=True,
                                       xflip=False)
 
-    elif dataset in ["mnist-thickness-intensity", "mnist-thickness-slant", "mnist-thickness-intensity-slant"]:
-        dataset2 = "mnist-thickness-intensity-slant" if dataset == "mnist-thickness-intensity-slant" else "mnist-thickness-intensity"
-        # dataset2 = "mnist-thickness-slant" if dataset == "mnist-thickness-intensity" else "mnist-thickness-intensity"
+    elif dataset == "mnist-thickness-intensity-slant":
+        dataset2 = "mnist-thickness-intensity-slant"
         ## seed is as the common convariate (c1)
         ds1 = MorphoMNISTDataset_causal(data_name=dataset,
                                         path=data_path1,
@@ -172,13 +169,13 @@ def run_visualizer_two_covs(
     elif group_by == "c2":
         c2_min, c2_max = labels1_min[1], labels1_max[1]
         c2 = np.mean([c2_min, c2_max]) + 0.5
-        c1_range = np.linspace(c1_min-3, c1_max+3, num=num_labels).reshape(-1, 1)
+        c1_range = np.linspace(c1_min-2, c1_max+2, num=num_labels).reshape(-1, 1)
         c2_range = np.array([c2] * num_labels).reshape(-1, 1)
         c3_range = np.linspace(labels2_min[1]-2, labels2_max[1]+2, num=num_labels).reshape(-1, 1)
     elif group_by == "c3":
         c3_min, c3_max = labels2_min[1], labels2_max[1]
         c3 = np.mean([c3_min, c3_max])
-        c1_range = np.linspace(c1_min-3, c1_max+3, num=num_labels).reshape(-1, 1)
+        c1_range = np.linspace(c1_min-2, c1_max+2, num=num_labels).reshape(-1, 1)
         c2_range = np.linspace(labels1_min[1]-2, labels1_max[1]+2, num=num_labels).reshape(-1, 1)
         c3_range = np.array([c3] * num_labels).reshape(-1, 1)
     c = torch.tensor(np.concatenate([c1_range, c2_range, c3_range], axis=1)).to(device)
