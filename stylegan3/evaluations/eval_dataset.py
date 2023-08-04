@@ -311,10 +311,11 @@ class UKBiobankMRIDataset2D(ImageFolderDataset):
         ## which source
         self.which_source = [path.split("/")[-1], path.split("/")[-2]]
         for source in self.which_source:
-            s = source.split("_")[-1]
-            if s.startswith("source"):
-                self.which_source = s
-                break
+            if len(source.split("_")) > 1:
+                s = source.split("_")[-2]
+                if s.startswith("source"):
+                    self.which_source = s
+                    break
         self.log_volumes_source1, self.log_volumes_source2 = get_settings(data_name)
 
         super().__init__(data_name, self.mode, path, resolution, **super_kwargs)
@@ -419,10 +420,11 @@ class UKBiobankMRIDataset2D_single(ImageFolderDataset):
         ## which source
         self.which_source = [path.split("/")[-1], path.split("/")[-2]]
         for source in self.which_source:
-            s = source.split("_")[-1]
-            if s.startswith("source"):
-                self.which_source = s
-                break
+            if len(source.split("_")) > 1:
+                s = source.split("_")[-2]
+                if s.startswith("source"):
+                    self.which_source = s
+                    break
         self.log_volumes = get_settings_sourcebased(data_name, self.which_source)
 
         super().__init__(data_name, self.mode, path, resolution, **super_kwargs)
@@ -790,10 +792,11 @@ class UKBiobankRetinalDataset2D(ImageFolderDataset):
         ## which source
         self.which_source = [path.split("/")[-1], path.split("/")[-2]]
         for source in self.which_source:
-            s = source.split("_")[-1]
-            if s.startswith("source"):
-                self.which_source = s
-                break
+            if len(source.split("_")) > 1:
+                s = source.split("_")[-2]
+                if s.startswith("source"):
+                    self.which_source = s
+                    break
         self.log_volumes_source1, self.log_volumes_source2 = get_settings(data_name)
         super().__init__(data_name, self.mode, path, resolution, **super_kwargs)
     
@@ -896,10 +899,11 @@ class UKBiobankRetinalDataset2D_single(ImageFolderDataset):
         ## which source
         self.which_source = [path.split("/")[-1], path.split("/")[-2]]
         for source in self.which_source:
-            s = source.split("_")[-1]
-            if s.startswith("source"):
-                self.which_source = s
-                break
+            if len(source.split("_")) > 1:
+                s = source.split("_")[-2]
+                if s.startswith("source"):
+                    self.which_source = s
+                    break
         self.log_volumes = get_settings_sourcebased(data_name, self.which_source)
 
         super().__init__(data_name, self.mode, path, resolution, **super_kwargs)

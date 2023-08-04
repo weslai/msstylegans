@@ -38,7 +38,6 @@ class StyleGAN2Loss(Loss):
         self.pl_mean            = torch.zeros([], device=device)
         self.blur_init_sigma    = blur_init_sigma
         self.blur_fade_kimg     = blur_fade_kimg
-        self.lambda_            = 0.7 
 
     def run_G(self, z, c, update_emas=False):
         ws = self.G.mapping(z, c, update_emas=update_emas)
@@ -62,7 +61,7 @@ class StyleGAN2Loss(Loss):
         outpus_d = self.D(img, c, update_emas=update_emas)
         return outpus_d
 
-    def accumulate_gradients(self, phase, real_img, real_c, gen_z, gen_c, gain, cur_nimg):
+    def accumulate_gradients(self, phase, real_img, real_c, gen_z, gen_c, gain, cur_nimg, lambda_):
         assert phase in ['Gmain', 'Greg', 'Gboth', 'Dmain', 'Dreg', 'Dboth']
         if self.pl_weight == 0:
             phase = {'Greg': 'none', 'Gboth': 'Gmain'}.get(phase, phase)
@@ -87,7 +86,7 @@ class StyleGAN2Loss(Loss):
                     torch.sigmoid(gen_img_pred), torch.ones_like(gen_img_pred, requires_grad=True).to(self.device))
                 mse_loss = torch.nn.functional.mse_loss(gen_cmap_pred, gen_c)
                 training_stats.report('Loss/scores/fake_labels', mse_loss)
-                loss_Gmain = bce_loss + mse_loss * self.lambda_
+                loss_Gmain = bce_loss + mse_loss * lambda_
                 training_stats.report('Loss/G/loss', loss_Gmain)
             with torch.autograd.profiler.record_function('Gmain_backward'):
                 loss_Gmain.mean().mul(gain).backward()
@@ -128,7 +127,7 @@ class StyleGAN2Loss(Loss):
                     torch.sigmoid(gen_img_pred), torch.zeros_like(gen_img_pred, requires_grad=True).to(self.device))
                 mse_loss = torch.nn.functional.mse_loss(gen_cmap_pred, gen_c)
                 training_stats.report('Loss/scores/fake_labels', mse_loss)
-                loss_Dgen = bce_loss + mse_loss * self.lambda_
+                loss_Dgen = bce_loss + mse_loss * lambda_
             with torch.autograd.profiler.record_function('Dgen_backward'):
                 loss_Dgen.mean().mul(gain).backward()
 
@@ -152,7 +151,7 @@ class StyleGAN2Loss(Loss):
                     bce_loss = torch.nn.functional.binary_cross_entropy(
                         torch.sigmoid(real_img_pred), torch.ones_like(real_img_pred, requires_grad=True).to(self.device))
                     mse_loss = torch.nn.functional.mse_loss(real_cmap_pred, real_c)
-                    loss_Dreal = bce_loss + mse_loss * self.lambda_
+                    loss_Dreal = bce_loss + mse_loss * lambda_
                     # loss_Dreal = torch.nn.functional.softplus(-real_logits) # -log(sigmoid(real_logits))
                     training_stats.report('Loss/D/loss', loss_Dgen + loss_Dreal)
 

@@ -341,6 +341,10 @@ def training_loop(
     batch_idx = 0
     if progress_fn is not None:
         progress_fn(0, total_kimg)
+    if resume_pkl is not None:
+        cur_lambda = 0.8
+    else:
+        cur_lambda = 0
     while True:
 
         # Fetch training data.
@@ -431,7 +435,8 @@ def training_loop(
             
             for real_img, real_c, gen_z, gen_c in zip(phase_real_img1, phase_real_c1, phase_gen_z, phase_gen_c):
                 loss.accumulate_gradients(phase=phase.name, real_img=real_img, real_c=real_c,
-                                        gen_z=gen_z[:batch_gpu], gen_c=gen_c[:batch_gpu], gain=phase.interval, cur_nimg=cur_nimg)
+                                        gen_z=gen_z[:batch_gpu], gen_c=gen_c[:batch_gpu], gain=phase.interval, cur_nimg=cur_nimg,
+                                        lambda_=cur_lambda)
             phase.module.requires_grad_(False)
 
             # Update weights.
@@ -454,7 +459,8 @@ def training_loop(
             phase.module.requires_grad_(True)
             for real_img, real_c, gen_z, gen_c in zip(phase_real_img2, phase_real_c2, phase_gen_z, phase_gen_c):
                 loss.accumulate_gradients(phase=phase.name, real_img=real_img, real_c=real_c, 
-                                        gen_z=gen_z[batch_gpu:], gen_c=gen_c[batch_gpu:], gain=phase.interval, cur_nimg=cur_nimg)
+                                        gen_z=gen_z[batch_gpu:], gen_c=gen_c[batch_gpu:], gain=phase.interval, cur_nimg=cur_nimg,
+                                        lambda_=cur_lambda)
             phase.module.requires_grad_(False)
 
             # Update weights.
@@ -605,6 +611,8 @@ def training_loop(
         tick_start_nimg = cur_nimg
         tick_start_time = time.time()
         maintenance_time = tick_start_time - tick_end_time
+        wandb.log({'lambda (mse)': cur_lambda}, step=cur_nimg)
+        cur_lambda = min(0.95, cur_lambda + 1 / 50)
         if done:
             break
 
