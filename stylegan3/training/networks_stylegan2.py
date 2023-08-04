@@ -695,7 +695,8 @@ class DiscriminatorEpilogue(torch.nn.Module):
         self.mbstd = MinibatchStdLayer(group_size=mbstd_group_size, num_channels=mbstd_num_channels) if mbstd_num_channels > 0 else None
         self.conv = Conv2dLayer(in_channels + mbstd_num_channels, in_channels, kernel_size=3, activation=activation, conv_clamp=conv_clamp)
         self.fc = FullyConnectedLayer(in_channels * (resolution ** 2), in_channels, activation=activation)
-        self.out = FullyConnectedLayer(in_channels, 1 if cmap_dim == 0 else cmap_dim)
+        # self.out = FullyConnectedLayer(in_channels, 1 if cmap_dim == 0 else cmap_dim)
+        self.out = FullyConnectedLayer(in_channels, 1 + cmap_dim)
 
     def forward(self, x, img, cmap, force_fp32=False):
         misc.assert_shape(x, [None, self.in_channels, self.resolution, self.resolution]) # [NCHW]
@@ -717,10 +718,10 @@ class DiscriminatorEpilogue(torch.nn.Module):
         x = self.fc(x.flatten(1))
         x = self.out(x)
 
-        # Conditioning.
-        if self.cmap_dim > 0:
-            misc.assert_shape(cmap, [None, self.cmap_dim])
-            x = (x * cmap).sum(dim=1, keepdim=True) * (1 / np.sqrt(self.cmap_dim))
+        # # Conditioning.
+        # if self.cmap_dim > 0:
+        #     misc.assert_shape(cmap, [None, self.cmap_dim])
+        #     x = (x * cmap).sum(dim=1, keepdim=True) * (1 / np.sqrt(self.cmap_dim))
 
         assert x.dtype == dtype
         return x
@@ -756,7 +757,8 @@ class Discriminator(torch.nn.Module):
         fp16_resolution = max(2 ** (self.img_resolution_log2 + 1 - num_fp16_res), 8)
 
         if cmap_dim is None:
-            cmap_dim = channels_dict[4]
+            # cmap_dim = channels_dict[4]
+            cmap_dim = c_dim
         if c_dim == 0:
             cmap_dim = 0
 
@@ -771,8 +773,8 @@ class Discriminator(torch.nn.Module):
                 first_layer_idx=cur_layer_idx, use_fp16=use_fp16, **block_kwargs, **common_kwargs)
             setattr(self, f'b{res}', block)
             cur_layer_idx += block.num_layers
-        if c_dim > 0:
-            self.mapping = MappingNetwork(z_dim=0, c_dim=c_dim, w_dim=cmap_dim, num_ws=None, w_avg_beta=None, **mapping_kwargs)
+        # if c_dim > 0:
+        #     self.mapping = MappingNetwork(z_dim=0, c_dim=c_dim, w_dim=cmap_dim, num_ws=None, w_avg_beta=None, **mapping_kwargs)
         self.b4 = DiscriminatorEpilogue(channels_dict[4], cmap_dim=cmap_dim, resolution=4, **epilogue_kwargs, **common_kwargs)
 
     def forward(self, img, c, update_emas=False, **block_kwargs):
@@ -784,7 +786,8 @@ class Discriminator(torch.nn.Module):
 
         cmap = None
         if self.c_dim > 0:
-            cmap = self.mapping(None, c)
+        #     cmap = self.mapping(None, c)
+            cmap = c
         x = self.b4(x, img, cmap)
         return x
 
