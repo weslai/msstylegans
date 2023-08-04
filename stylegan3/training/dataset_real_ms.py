@@ -24,10 +24,6 @@ try:
 except ImportError:
     pyspng = None
 
-### -----------
-### --- Own ---
-### -----------
-from latent_mle import CausalSampling, preprocess_samples
 #----------------------------------------------------------------------------
 
 class Dataset(torch.utils.data.Dataset):
