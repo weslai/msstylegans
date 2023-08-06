@@ -75,8 +75,12 @@ class StyleGAN2Loss(Loss):
                 gen_img, _gen_ws = self.run_G(gen_z, gen_c)
                 # gen_logits = self.run_D(gen_img, gen_c, blur_sigma=blur_sigma)
                 gen_outputs_d = self.run_D(gen_img, gen_c, blur_sigma=blur_sigma)
-                gen_img_pred = gen_outputs_d[:, 0]
-                gen_cmap_pred = gen_outputs_d[:, 1:]
+                if gen_outputs_d.shape[1] > 1:
+                    gen_img_pred = gen_outputs_d[:, 0]
+                    gen_cmap_pred = gen_outputs_d[:, 1:]
+                else:
+                    gen_img_pred = gen_outputs_d
+                    gen_cmap_pred = None
                 training_stats.report('Loss/scores/fake', gen_img_pred)
                 training_stats.report('Loss/signs/fake', gen_img_pred.sign())
                 # training_stats.report('Loss/scores/fake', gen_logits)
@@ -84,9 +88,12 @@ class StyleGAN2Loss(Loss):
                 # loss_Gmain = torch.nn.functional.softplus(-gen_logits) # -log(sigmoid(gen_logits))
                 bce_loss = torch.nn.functional.binary_cross_entropy(
                     torch.sigmoid(gen_img_pred), torch.ones_like(gen_img_pred, requires_grad=True).to(self.device))
-                mse_loss = torch.nn.functional.mse_loss(gen_cmap_pred, gen_c)
-                training_stats.report('Loss/scores/fake_labels', mse_loss)
-                loss_Gmain = bce_loss + mse_loss * lambda_
+                if gen_outputs_d.shape[1] > 1:
+                    mse_loss = torch.nn.functional.mse_loss(gen_cmap_pred, gen_c)
+                    training_stats.report('Loss/scores/fake_labels', mse_loss)
+                    loss_Gmain = bce_loss + mse_loss * lambda_
+                else:
+                    loss_Gmain = bce_loss
                 training_stats.report('Loss/G/loss', loss_Gmain)
             with torch.autograd.profiler.record_function('Gmain_backward'):
                 loss_Gmain.mean().mul(gain).backward()
@@ -116,8 +123,12 @@ class StyleGAN2Loss(Loss):
                 gen_img, _gen_ws = self.run_G(gen_z, gen_c, update_emas=True)
                 # gen_logits = self.run_D(gen_img, gen_c, blur_sigma=blur_sigma, update_emas=True)
                 gen_outputs_d = self.run_D(gen_img, gen_c, blur_sigma=blur_sigma, update_emas=True)
-                gen_img_pred = gen_outputs_d[:, 0]
-                gen_cmap_pred = gen_outputs_d[:, 1:]
+                if gen_outputs_d.shape[1] > 1:
+                    gen_img_pred = gen_outputs_d[:, 0]
+                    gen_cmap_pred = gen_outputs_d[:, 1:]
+                else:
+                    gen_img_pred = gen_outputs_d
+                    gen_cmap_pred = None
                 training_stats.report('Loss/scores/fake', gen_img_pred)
                 training_stats.report('Loss/signs/fake', gen_img_pred.sign())
                 # training_stats.report('Loss/scores/fake', gen_logits)
@@ -125,9 +136,12 @@ class StyleGAN2Loss(Loss):
                 # loss_Dgen = torch.nn.functional.softplus(gen_logits) # -log(1 - sigmoid(gen_logits))
                 bce_loss = torch.nn.functional.binary_cross_entropy(
                     torch.sigmoid(gen_img_pred), torch.zeros_like(gen_img_pred, requires_grad=True).to(self.device))
-                mse_loss = torch.nn.functional.mse_loss(gen_cmap_pred, gen_c)
-                training_stats.report('Loss/scores/fake_labels', mse_loss)
-                loss_Dgen = bce_loss + mse_loss * lambda_
+                if gen_outputs_d.shape[1] > 1:
+                    mse_loss = torch.nn.functional.mse_loss(gen_cmap_pred, gen_c)
+                    training_stats.report('Loss/scores/fake_labels', mse_loss)
+                    loss_Dgen = bce_loss + mse_loss * lambda_
+                else:
+                    loss_Dgen = bce_loss
             with torch.autograd.profiler.record_function('Dgen_backward'):
                 loss_Dgen.mean().mul(gain).backward()
 
@@ -139,8 +153,12 @@ class StyleGAN2Loss(Loss):
                 real_img_tmp = real_img.detach().requires_grad_(phase in ['Dreg', 'Dboth'])
                 # real_logits = self.run_D(real_img_tmp, real_c, blur_sigma=blur_sigma)
                 real_outputs_d = self.run_D(real_img_tmp, real_c, blur_sigma=blur_sigma)
-                real_img_pred = real_outputs_d[:, 0]
-                real_cmap_pred = real_outputs_d[:, 1:]
+                if real_outputs_d.shape[1] > 1:
+                    real_img_pred = real_outputs_d[:, 0]
+                    real_cmap_pred = real_outputs_d[:, 1:]
+                else:
+                    real_img_pred = real_outputs_d
+                    real_cmap_pred = None
                 training_stats.report('Loss/scores/real', real_img_pred)
                 training_stats.report('Loss/signs/real', real_img_pred.sign())
                 # training_stats.report('Loss/scores/real', real_logits)
@@ -150,9 +168,12 @@ class StyleGAN2Loss(Loss):
                 if phase in ['Dmain', 'Dboth']:
                     bce_loss = torch.nn.functional.binary_cross_entropy(
                         torch.sigmoid(real_img_pred), torch.ones_like(real_img_pred, requires_grad=True).to(self.device))
-                    mse_loss = torch.nn.functional.mse_loss(real_cmap_pred, real_c)
-                    loss_Dreal = bce_loss + mse_loss * lambda_
-                    # loss_Dreal = torch.nn.functional.softplus(-real_logits) # -log(sigmoid(real_logits))
+                    if real_outputs_d.shape[1] > 1:
+                        mse_loss = torch.nn.functional.mse_loss(real_cmap_pred, real_c)
+                        loss_Dreal = bce_loss + mse_loss * lambda_
+                        # loss_Dreal = torch.nn.functional.softplus(-real_logits) # -log(sigmoid(real_logits))
+                    else:
+                        loss_Dreal = bce_loss
                     training_stats.report('Loss/D/loss', loss_Dgen + loss_Dreal)
 
                 loss_Dr1 = 0

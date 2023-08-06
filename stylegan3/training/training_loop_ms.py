@@ -342,7 +342,7 @@ def training_loop(
     if progress_fn is not None:
         progress_fn(0, total_kimg)
     if resume_pkl is not None:
-        cur_lambda = 0.8
+        cur_lambda = 0.5
     else:
         cur_lambda = 0
     while True:
@@ -612,7 +612,7 @@ def training_loop(
         tick_start_time = time.time()
         maintenance_time = tick_start_time - tick_end_time
         wandb.log({'lambda (mse)': cur_lambda}, step=cur_nimg)
-        cur_lambda = min(0.95, cur_lambda + 1 / 50)
+        cur_lambda = min(0.9, cur_lambda + 1 / 50)
         if done:
             break
 
