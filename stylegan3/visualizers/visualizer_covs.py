@@ -164,8 +164,8 @@ def run_visualizer_two_covs(
     if group_by == "c1":
         c1 = np.mean([c1_min, c1_max])
         c1_range = np.array([c1] * num_labels).reshape(-1, 1)
-        c2_range = np.linspace(labels1_min[1]-2, labels1_max[1]+2, num=num_labels).reshape(-1, 1)
-        c3_range = np.linspace(labels2_min[1]-2, labels2_max[1]+2, num=num_labels).reshape(-1, 1)
+        c2_range = np.linspace(labels1_min[1]-3, labels1_max[1]+3, num=num_labels).reshape(-1, 1)
+        c3_range = np.linspace(labels2_min[1]-3, labels2_max[1]+3, num=num_labels).reshape(-1, 1)
     elif group_by == "c2":
         c2_min, c2_max = labels1_min[1], labels1_max[1]
         c2 = np.mean([c2_min, c2_max]) + 0.5
