@@ -212,9 +212,9 @@ def training_loop(
     if rank == 0:
         print('Constructing networks...')
     if training_set.data_name == "retinal" or training_set.data_name == "eyepacs":
-        g_label_dim = training_set.label_dim + training_set1.label_dim + 2 ## 2 sources
+        g_label_dim = training_set.label_dim + training_set1.label_dim + 1 ## 2 sources (binary)
     elif training_set.data_name == "ukb" or training_set.data_name == "adni":
-        g_label_dim = training_set.label_dim + training_set1.label_dim + 1 ## 2 sources (age is shared)
+        g_label_dim = training_set.label_dim + training_set1.label_dim ## 2 sources (binary) (age is shared)
     common_kwargs = dict(c_dim=g_label_dim, img_resolution=training_set.resolution, img_channels=training_set.num_channels)
     G = dnnlib.util.construct_class_by_name(**G_kwargs, **common_kwargs).train().requires_grad_(False).to(device) # subclass of torch.nn.Module
     D = dnnlib.util.construct_class_by_name(**D_kwargs, **common_kwargs).train().requires_grad_(False).to(device) # subclass of torch.nn.Module
@@ -290,13 +290,13 @@ def training_loop(
         
         ## labels estimation for source 1
         if training_set.data_name == "retinal":
-            sample_labels = latent_sampler2.sample_normalize(len(labels)).cpu().detach().numpy()
-            c_source = np.array([1, 0] * len(labels)) ## source 1
+            sample_labels = latent_sampler2.sampling_model(len(labels))[1].cpu().detach().numpy()
+            c_source = np.array([0] * len(labels)) ## source 1
             labels = np.concatenate([labels, sample_labels, c_source.reshape(len(labels), -1)], axis=1)
         elif training_set.data_name == "ukb":
             age = labels[:, 0] * (training_set.model["age_max"] - training_set.model["age_min"])  + training_set.model["age_min"]
             sample_labels = latent_sampler2.sampling_given_age(age=age, normalize=True).cpu().detach().numpy()
-            c_source = np.array([1, 0] * len(labels)) ## source 1
+            c_source = np.array([1] * len(labels)) ## source 1
             labels = np.concatenate([labels, sample_labels[:, 1:], c_source.reshape(len(labels), -1)], axis=1)
         else:
             raise NotImplementedError("Unknown dataset name: ", training_set.data_name)
@@ -331,6 +331,10 @@ def training_loop(
     batch_idx = 0
     if progress_fn is not None:
         progress_fn(0, total_kimg)
+    if resume_pkl is not None:
+        cur_lambda = 0.5
+    else:
+        cur_lambda = 0
     while True:
 
         # Fetch training data.
@@ -349,12 +353,12 @@ def training_loop(
                 ## estimate c2, c3
                 ## estimate c3 for source 1
                 # age = phase_real_c1[:, 0] * torch.tensor(training_set1.model["age_max"] - training_set1.model["age_min"]) + torch.tensor(training_set1.model["age_min"])
-                gen_c3 = latent_sampler2.sample_normalize(len(phase_real_c1))
-                c_source = torch.tensor([1, 0] * len(phase_real_c1)).reshape(len(phase_real_c1), -1) ## source 1
+                gen_c3 = latent_sampler2.sampling_model(len(phase_real_c1))[-1]
+                c_source = torch.tensor([0] * len(phase_real_c1)).reshape(len(phase_real_c1), -1) ## source 1
                 phase_real_c1 = torch.cat([phase_real_c1, gen_c3, c_source], dim=1).to(device).split(batch_gpu)
                 ## estimate c1, c2 for source 2
                 gen_c12 = latent_sampler1.sample_normalize(len(phase_real_c2))
-                c_source = torch.tensor([0, 1] * len(phase_real_c2)).reshape(len(phase_real_c2), -1) ## source 2
+                c_source = torch.tensor([1] * len(phase_real_c2)).reshape(len(phase_real_c2), -1) ## source 2
                 phase_real_c2 = torch.cat([gen_c12, 
                                         phase_real_c2, c_source], dim=1).to(device).split(batch_gpu)
             elif training_set.data_name == "ukb":
@@ -362,12 +366,12 @@ def training_loop(
                 ## estimate c3 for source 1
                 age = phase_real_c1[:, 0] * torch.tensor(training_set.model["age_max"] - training_set.model["age_min"]) + torch.tensor(training_set.model["age_min"])
                 gen_c3 = latent_sampler2.sampling_given_age(age, normalize=True)
-                c_source = torch.tensor([1, 0] * len(phase_real_c1)).reshape(len(phase_real_c1), -1) ## source 1
+                c_source = torch.tensor([0] * len(phase_real_c1)).reshape(len(phase_real_c1), -1) ## source 1
                 phase_real_c1 = torch.cat([phase_real_c1, gen_c3[:, 1:], c_source], dim=1).to(device).split(batch_gpu)
                 ## estimate c1, c2 for source 2
                 age = phase_real_c2[:, 0] * torch.tensor(training_set1.model["age_max"] - training_set1.model["age_min"]) + torch.tensor(training_set1.model["age_min"])
                 gen_c12 = latent_sampler1.sampling_given_age(age, normalize=True)
-                c_source = torch.tensor([0, 1] * len(phase_real_c2)).reshape(len(phase_real_c2), -1) ## source 2
+                c_source = torch.tensor([1] * len(phase_real_c2)).reshape(len(phase_real_c2), -1) ## source 2
                 phase_real_c2 = torch.cat([phase_real_c2[:, 0].reshape(-1, 1), gen_c12[:, 1:], 
                                         phase_real_c2[:, 1:], c_source], dim=1).to(device).split(batch_gpu)
 
@@ -389,12 +393,12 @@ def training_loop(
             if training_set.data_name == "retinal": 
                 ## estimate (c2, c3)
                 ## estimate c3 for source 1
-                gen_c3 = latent_sampler2.sample_normalize(len(all_gen_c1))
-                c_source = torch.tensor([1, 0] * len(all_gen_c1)).reshape(len(all_gen_c1), -1) ## source 1
+                gen_c3 = latent_sampler2.sampling_model(len(all_gen_c1))[-1]
+                c_source = torch.tensor([0] * len(all_gen_c1)).reshape(len(all_gen_c1), -1) ## source 1
                 all_gen_c1 = torch.cat([all_gen_c1, gen_c3, c_source], dim=1).pin_memory().to(device)
                 ## estimate c1, c2 for source 2
                 gen_c12 = latent_sampler1.sample_normalize(len(all_gen_c2))
-                c_source = torch.tensor([0, 1] * len(all_gen_c2)).reshape(len(all_gen_c2), -1) ## source 2
+                c_source = torch.tensor([1] * len(all_gen_c2)).reshape(len(all_gen_c2), -1) ## source 2
                 all_gen_c2 = torch.cat([gen_c12, 
                                         all_gen_c2, c_source], dim=1).pin_memory().to(device)
             elif training_set.data_name == "ukb":
@@ -402,12 +406,12 @@ def training_loop(
                 ## estimate c3 for source 1
                 age = all_gen_c1[:, 0] * torch.tensor(training_set.model["age_max"] - training_set.model["age_min"]) + torch.tensor(training_set.model["age_min"])
                 gen_c3 = latent_sampler2.sampling_given_age(age, normalize=True)
-                c_source = torch.tensor([1, 0] * len(all_gen_c1)).reshape(len(all_gen_c1), -1) ## source 1
+                c_source = torch.tensor([0] * len(all_gen_c1)).reshape(len(all_gen_c1), -1) ## source 1
                 all_gen_c1 = torch.cat([all_gen_c1, gen_c3[:, 1:], c_source], dim=1).pin_memory().to(device)
                 ## estimate c1, c2 for source 2
                 age = all_gen_c2[:, 0] * torch.tensor(training_set1.model["age_max"] - training_set1.model["age_min"]) + torch.tensor(training_set1.model["age_min"])
                 gen_c12 = latent_sampler1.sampling_given_age(age, normalize=True)
-                c_source = torch.tensor([0, 1] * len(all_gen_c2)).reshape(len(all_gen_c2), -1) ## source 2
+                c_source = torch.tensor([1] * len(all_gen_c2)).reshape(len(all_gen_c2), -1) ## source 2
                 all_gen_c2 = torch.cat([all_gen_c2[:, 0].reshape(-1, 1), gen_c12[:, 1:], 
                                         all_gen_c2[:, 1:], c_source], dim=1).pin_memory().to(device)
             else:
@@ -430,7 +434,8 @@ def training_loop(
             
             for real_img, real_c, gen_z, gen_c in zip(phase_real_img1, phase_real_c1, phase_gen_z, phase_gen_c):
                 loss.accumulate_gradients(phase=phase.name, real_img=real_img, real_c=real_c,
-                                        gen_z=gen_z[:batch_gpu], gen_c=gen_c[:batch_gpu], gain=phase.interval, cur_nimg=cur_nimg)
+                                        gen_z=gen_z[:batch_gpu], gen_c=gen_c[:batch_gpu], gain=phase.interval, cur_nimg=cur_nimg,
+                                        lambda_=cur_lambda)
             phase.module.requires_grad_(False)
 
             # Update weights.
@@ -453,7 +458,8 @@ def training_loop(
             phase.module.requires_grad_(True)
             for real_img, real_c, gen_z, gen_c in zip(phase_real_img2, phase_real_c2, phase_gen_z, phase_gen_c):
                 loss.accumulate_gradients(phase=phase.name, real_img=real_img, real_c=real_c, 
-                                        gen_z=gen_z[batch_gpu:], gen_c=gen_c[batch_gpu:], gain=phase.interval, cur_nimg=cur_nimg)
+                                        gen_z=gen_z[batch_gpu:], gen_c=gen_c[batch_gpu:], gain=phase.interval, cur_nimg=cur_nimg,
+                                        lambda_=cur_lambda)
             phase.module.requires_grad_(False)
 
             # Update weights.
@@ -604,6 +610,8 @@ def training_loop(
         tick_start_nimg = cur_nimg
         tick_start_time = time.time()
         maintenance_time = tick_start_time - tick_end_time
+        wandb.log({'lambda (mse)': cur_lambda}, step=cur_nimg)
+        cur_lambda = min(0.9, cur_lambda + 1 / 50)
         if done:
             break
 

@@ -29,6 +29,7 @@ class MetricOptions:
         self.G              = G
         self.G_kwargs       = dnnlib.EasyDict(G_kwargs)
         self.dataset_kwargs = dnnlib.EasyDict(dataset_kwargs)
+        self.dataset_kwargs.update(max_size=None, xflip=False)
         if dataset_kwargs_1 is not None:
             assert sampler is not None
             self.dataset_kwargs_1 = dnnlib.EasyDict(dataset_kwargs_1)
@@ -101,7 +102,9 @@ def iterate_random_labels(opts, batch_size):
                         ## estimate c3 for source1
                         gen_c3 = opts.sampler2.sample_normalize(1).reshape(1, -1)
                         c_source = torch.tensor([1, 0]).reshape(1, -1)
-                        source1_labels = torch.concat([torch.tensor(label1).reshape(1, -1), gen_c3, c_source], dim=1)
+                        source1_labels = torch.concat([torch.tensor(label1).reshape(1, -1), 
+                                                       gen_c3, 
+                                                       c_source], dim=1)
                         ## estimate c2 for source2
                         gen_c12 = opts.sampler1.sample_normalize(1).reshape(1, -1)
                         c_source = torch.tensor([0, 1]).reshape(1, -1)

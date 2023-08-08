@@ -295,10 +295,11 @@ class UKBiobankRetinalDataset(ImageFolderDataset):
         ## which source
         self.which_source = [path.split("/")[-1], path.split("/")[-2]]
         for source in self.which_source:
-            s = source.split("_")[-1]
-            if s.startswith("source"):
-                self.which_source = s
-                break
+            if len(source.split("_")) > 1:
+                s = source.split("_")[-2]
+                if s.startswith("source"):
+                    self.which_source = s
+                    break
         self.log_volumes = get_settings(data_name, self.which_source)
         super().__init__(data_name, self.mode, path, resolution, **super_kwargs)
     
@@ -393,10 +394,11 @@ class UKBiobankMRIDataset2D(ImageFolderDataset):
         ## which source
         self.which_source = [path.split("/")[-1], path.split("/")[-2]]
         for source in self.which_source:
-            s = source.split("_")[-1]
-            if s.startswith("source"):
-                self.which_source = s
-                break
+            if len(source.split("_")) > 1:
+                s = source.split("_")[-2]
+                if s.startswith("source"):
+                    self.which_source = s
+                    break
         self.log_volumes = get_settings(data_name, self.which_source)
 
         super().__init__(data_name, self.mode, path, resolution, **super_kwargs)
@@ -585,10 +587,11 @@ class MorphoMNISTDataset_causal(ImageFolderDataset):
         ## which source 
         self.which_source = [path.split("/")[-1], path.split("/")[-2]]
         for source in self.which_source:
-            s = source.split("_")[-1]
-            if s.startswith("source"):
-                self.which_source = s
-                break
+            if len(source.split("_")) > 1:
+                s = source.split("_")[-2]
+                if s.startswith("source"):
+                    self.which_source = s
+                    break
 
         super().__init__(data_name, self.mode, path, resolution, **super_kwargs)
 
@@ -731,7 +734,7 @@ class KaggleEyepacsDataset(ImageFolderDataset):
         labels = [labels[fname.replace("\\", "/")] for fname in self._image_fnames] ## a dict 
         self.vars = ["level"]
 
-        new_labels = np.zeros(shape=(len(labels),), dtype=np.int64)
+        new_labels = np.zeros(shape=(len(labels), len(self.vars)), dtype=np.float32)
         for num, l in enumerate(labels):
             i = list(l[self.vars[0]].items())[0][0]
             temp = l[self.vars[0]][str(i)]

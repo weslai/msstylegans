@@ -40,7 +40,7 @@ def get_settings(dataset: str):
 def set_dataset(name: str):
     ## The Order of the vars should be (age, [cdr], VOLS)
     if name == "ukb":
-        VOLS = ["grey_matter", "ventricle"]
+        VOLS = ["ventricle", "grey_matter"]
         VARS = ["age"] + VOLS
         ## ------------------------------------------------------
     elif name == "adni":

@@ -159,10 +159,13 @@ def init_dataset_kwargs(data, name, use_labels, mode: str,
         dataset_obj = dnnlib.util.construct_class_by_name(**dataset_kwargs) # Subclass of training.dataset.Dataset.
         dataset_kwargs.resolution = dataset_obj.resolution # Be explicit about resolution.
         dataset_kwargs.use_labels = dataset_obj.has_labels # Be explicit about labels.
-        if scenario == "half":
-            dataset_kwargs.max_size = int(len(dataset_obj) / 2)
+        if mode == "train":
+            if scenario == "half":
+                dataset_kwargs.max_size = int(len(dataset_obj) / 2)
+            else:
+                dataset_kwargs.max_size = len(dataset_obj) # Be explicit about dataset size.
         else:
-            dataset_kwargs.max_size = len(dataset_obj) # Be explicit about dataset size.
+            dataset_kwargs.max_size = len(dataset_obj)
         return dataset_kwargs, dataset_obj.data_name
     except IOError as err:
         raise click.ClickException(f'--data: {err}')
@@ -254,10 +257,10 @@ def main(**kwargs):
     opts = dnnlib.EasyDict(kwargs) # Command line arguments.
     c = dnnlib.EasyDict() # Main config dict.
     c.G_kwargs = dnnlib.EasyDict(class_name=None, z_dim=512, w_dim=512, mapping_kwargs=dnnlib.EasyDict())
-    c.D_kwargs = dnnlib.EasyDict(class_name='training.networks_stylegan2_ms.Discriminator', block_kwargs=dnnlib.EasyDict(), mapping_kwargs=dnnlib.EasyDict(), epilogue_kwargs=dnnlib.EasyDict())
+    c.D_kwargs = dnnlib.EasyDict(class_name='training.networks_stylegan2.Discriminator', block_kwargs=dnnlib.EasyDict(), mapping_kwargs=dnnlib.EasyDict(), epilogue_kwargs=dnnlib.EasyDict())
     c.G_opt_kwargs = dnnlib.EasyDict(class_name='torch.optim.Adam', betas=[0,0.99], eps=1e-8)
     c.D_opt_kwargs = dnnlib.EasyDict(class_name='torch.optim.Adam', betas=[0,0.99], eps=1e-8)
-    c.loss_kwargs = dnnlib.EasyDict(class_name='training.loss.StyleGAN2Loss')
+    c.loss_kwargs = dnnlib.EasyDict(class_name='training.loss_real_ms.StyleGAN2Loss')
     c.data_loader_kwargs = dnnlib.EasyDict(pin_memory=True, prefetch_factor=2)
 
     # Training set.
@@ -277,8 +280,8 @@ def main(**kwargs):
         elif opts.data_name == "ukb":
             max_size1 = None
     elif opts.data_scenario == "half":
-        max_size = int(60000/2)
-        max_size1 = int(60000/2)
+        max_size = int(100000/2)
+        max_size1 = int(100000/2)
     ## first dataset
     c.training_set_kwargs,dataset_name1 = init_dataset_kwargs(data=opts.data1, name=opts.data_name1, 
                                                               use_labels=opts.cond, mode="train", 
