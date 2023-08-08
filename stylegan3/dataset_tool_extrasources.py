@@ -221,7 +221,7 @@ def open_adni(
     # df_test = df_test[covs].dropna()
     # test_filepath = df_test[covs[0]]
     
-    trainset, testset = train_test_split(df_3T_ext, test_size=0.15, random_state=42, shuffle=True)
+    trainset, testset = train_test_split(df_3T_ext, test_size=0.20, random_state=42, shuffle=True)
     trainset, valset = train_test_split(trainset, test_size=0.1, random_state=42, shuffle=True)
 
     ## here delete the replicated data from the trainset and concatenate on the valset
@@ -344,14 +344,14 @@ def open_dataset(source, *,
                 which_dataset=which_dataset,
                 covs=["filepath_MNIlin", 
                     "Age", 
-                    "Sex",
-                    "CDGLOBAL",
-                    "left_lateral_ventricle",
-                    "right_lateral_ventricle",
-                    "left_cerebral_cortex",
-                    "right_cerebral_cortex",
-                    "left_hippocampus",
-                    "right_hippocampus"]
+                    #"Sex",
+                    "CDGLOBAL"]
+                    # "left_lateral_ventricle",
+                    # "right_lateral_ventricle",
+                    # "left_cerebral_cortex",
+                    # "right_cerebral_cortex",
+                    # "left_hippocampus",
+                    # "right_hippocampus"]
             )
     elif os.path.isfile(source):
         if file_ext(source) == 'zip':
@@ -400,7 +400,7 @@ def open_dest(dest: str) -> Tuple[str, Callable[[str, Union[bytes, str]], None],
 @click.option('--source', help='Directory or archive name for input dataset', required=True, metavar='PATH')
 @click.option('--dest', help='Output directory or archive name for output dataset', required=True, metavar='PATH')
 @click.option('--dataset_name', help='Name of the dataset', required=True, default='adni')
-@click.option('--annotation_path', help='Path to the annotation file', required=True, default=None)
+@click.option('--annotation_path', help='Path to the annotation file', default=None)
 @click.option('--max-images', help='Output only up to `max-images` images', type=int, default=None)
 @click.option('--which_dataset', help='create data subset', required=True, default="train", type=click.Choice(['train', 'test', 'val']))
 @click.option('--transform', help='Input crop/resize mode', default=None)
@@ -410,11 +410,11 @@ def convert_dataset(
     source: str,
     dest: str,
     dataset_name: str,
-    annotation_path: str,
     max_images: Optional[int],
     which_dataset: str,
     transform: Optional[str],
-    resolution: Optional[Tuple[int, int]]
+    resolution: Optional[Tuple[int, int]],
+    annotation_path: str = None
 ):
     """Convert an image dataset into a dataset archive usable with StyleGAN2 ADA PyTorch.
 
