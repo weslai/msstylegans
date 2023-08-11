@@ -157,7 +157,7 @@ def init_dataset_kwargs(data, name, use_labels, mode: str,
                 use_labels=use_labels, 
                 max_size=max_size, 
                 xflip=False,
-                include_numbers=False
+                include_numbers=True
             )
         elif name == "mnist":
             dataset_kwargs = dnnlib.EasyDict(

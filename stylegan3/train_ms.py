@@ -144,17 +144,20 @@ def init_dataset_kwargs(data, name, use_labels, mode: str,
                 use_labels=use_labels, 
                 max_size=max_size, 
                 xflip=False,
-                include_numbers=False
+                include_numbers=True
             )
         else:
             raise click.ClickException(f'--data_name: {name} dataloader not implemented')
         dataset_obj = dnnlib.util.construct_class_by_name(**dataset_kwargs) # Subclass of training.dataset.Dataset.
         dataset_kwargs.resolution = dataset_obj.resolution # Be explicit about resolution.
         dataset_kwargs.use_labels = dataset_obj.has_labels # Be explicit about labels.
-        if scenario == "half":
-            dataset_kwargs.max_size = int(len(dataset_obj) / 2)
+        if mode == "train":
+            if scenario == "half":
+                dataset_kwargs.max_size = int(len(dataset_obj) / 2)
+            else:
+                dataset_kwargs.max_size = len(dataset_obj) # Be explicit about dataset size.
         else:
-            dataset_kwargs.max_size = len(dataset_obj) # Be explicit about dataset size.
+            dataset_kwargs.max_size = len(dataset_obj)
         return dataset_kwargs, dataset_obj.data_name
     except IOError as err:
         raise click.ClickException(f'--data: {err}')
@@ -250,7 +253,7 @@ def main(**kwargs):
     c.D_kwargs = dnnlib.EasyDict(class_name='training.networks_stylegan2.Discriminator', block_kwargs=dnnlib.EasyDict(), mapping_kwargs=dnnlib.EasyDict(), epilogue_kwargs=dnnlib.EasyDict())
     c.G_opt_kwargs = dnnlib.EasyDict(class_name='torch.optim.Adam', betas=[0,0.99], eps=1e-8)
     c.D_opt_kwargs = dnnlib.EasyDict(class_name='torch.optim.Adam', betas=[0,0.99], eps=1e-8)
-    c.loss_kwargs = dnnlib.EasyDict(class_name='training.loss.StyleGAN2Loss')
+    c.loss_kwargs = dnnlib.EasyDict(class_name='training.loss_ms.StyleGAN2Loss')
     c.data_loader_kwargs = dnnlib.EasyDict(pin_memory=True, prefetch_factor=2)
 
     # Training set.
@@ -273,7 +276,7 @@ def main(**kwargs):
         max_size = int(60000/2)
         max_size1 = int(60000/2)
     ## first dataset
-    c.training_set_kwargs,dataset_name1 = init_dataset_kwargs(data=opts.data1, name=opts.data_name1, 
+    c.training_set_kwargs, dataset_name1 = init_dataset_kwargs(data=opts.data1, name=opts.data_name1, 
                                                               use_labels=opts.cond, mode="train", 
                                                               max_size=max_size, scenario=opts.data_scenario)
     c.validation_set_kwargs, val_dataset_name1 = init_dataset_kwargs(data=opts.data1, name=opts.data_name1, 

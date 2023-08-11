@@ -192,6 +192,8 @@ def training_loop(
         print('Image shape 2: ', training_set1.image_shape)
         print('Label shape 2: ', training_set1.label_shape)
         print()
+        print("Num Concat train images:", len(concat_training_set))
+        print("Num Concat val images:", len(concat_val_set))
         wandb.config.update(
             {
                 "dataset1": training_set.data_name,
@@ -296,7 +298,7 @@ def training_loop(
         elif training_set.data_name == "ukb":
             age = labels[:, 0] * (training_set.model["age_max"] - training_set.model["age_min"])  + training_set.model["age_min"]
             sample_labels = latent_sampler2.sampling_given_age(age=age, normalize=True).cpu().detach().numpy()
-            c_source = np.array([1] * len(labels)) ## source 1
+            c_source = np.array([0] * len(labels)) ## source 1
             labels = np.concatenate([labels, sample_labels[:, 1:], c_source.reshape(len(labels), -1)], axis=1)
         else:
             raise NotImplementedError("Unknown dataset name: ", training_set.data_name)
@@ -352,7 +354,6 @@ def training_loop(
             if training_set.data_name == "retinal": 
                 ## estimate c2, c3
                 ## estimate c3 for source 1
-                # age = phase_real_c1[:, 0] * torch.tensor(training_set1.model["age_max"] - training_set1.model["age_min"]) + torch.tensor(training_set1.model["age_min"])
                 gen_c3 = latent_sampler2.sampling_model(len(phase_real_c1))[-1]
                 c_source = torch.tensor([0] * len(phase_real_c1)).reshape(len(phase_real_c1), -1) ## source 1
                 phase_real_c1 = torch.cat([phase_real_c1, gen_c3, c_source], dim=1).to(device).split(batch_gpu)
