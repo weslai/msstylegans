@@ -132,6 +132,45 @@ def open_image_zip(source, *, max_images: Optional[int]):
                     break
     return max_idx, iterate_images()
 #----------------------------------------------------------------------------
+def open_rfmid_retinal(
+    annotation_path: str,
+    max_images: Optional[int],
+    which_dataset: str
+):
+    """
+    use https://www.mdpi.com/2306-5729/6/2/14 as the dataset
+    """
+    assert which_dataset in ['train', 'val', 'test']
+    ## load data
+    assert annotation_path.split(".")[-1] == "csv"
+    df = pd.read_csv(annotation_path)
+    df = df.dropna()
+    ## add paths 
+    temp_path = os.path.join("/", *annotation_path.split("/")[:-1])
+    if which_dataset == "train":
+        temp_path = os.path.join(temp_path, "Training_cropped/")
+    elif which_dataset == "val":
+        temp_path = os.path.join(temp_path, "Validation_cropped/")
+    else:
+        temp_path = os.path.join(temp_path, "Test_cropped/")
+    df["path"] = temp_path + df["ID"].astype("string") + ".jpg"
+
+    input_images = list(df["path"])
+    max_idx = maybe_min(len(input_images), max_images)
+
+    def iterate_images():
+        for idx, fname in enumerate(input_images):
+            ## load image
+            img = np.array(PIL.Image.open(fname))
+            items = dict(
+                (key, value)
+                    for key, value in df.loc[df["path"] == fname].to_dict().items()
+            )
+            yield dict(img=img, label=items)
+            if idx >= max_idx-1:
+                break
+    return max_idx, iterate_images()
+#----------------------------------------------------------------------------
 def open_kaggle_eyepacs(
     annotation_path: str,
     max_images: Optional[int],
@@ -185,6 +224,58 @@ def open_kaggle_eyepacs(
                     for key, value in dataset.loc[dataset["path"] == fname][covs[1:]].to_dict().items()
             )
             yield dict(img=img, label=items)
+            if idx >= max_idx - 1:
+                break
+    return max_idx, iterate_images()
+#----------------------------------------------------------------------------
+def open_nacc(
+    annotation_path: str,
+    max_images: Optional[int],
+    which_dataset: str,
+    covs: list,
+    normalize_img: bool = True
+): ## brain MRI
+    import nibabel as nib
+    assert which_dataset in ['train', 'val', 'test']
+    ## load data 
+    df_3T = pd.read_csv(annotation_path)
+    df_3T_ext = df_3T[covs].dropna()
+    
+    trainset, testset = train_test_split(df_3T_ext, test_size=0.15, random_state=42, shuffle=True)
+    trainset, valset = train_test_split(trainset, test_size=0.1, random_state=42, shuffle=True)
+    
+    if which_dataset == "train":
+        dataset = trainset
+    elif which_dataset == "val":
+        dataset = valset
+    elif which_dataset == "test":
+        dataset = testset
+
+    input_imgs = list(dataset["MNIlin_filepath"])
+    max_idx = maybe_min(len(input_imgs), max_images)
+
+    def iterate_images():
+        for idx, fname in enumerate(input_imgs):
+            ## load image
+            img = nib.load(fname)
+            newimg = img.get_fdata()
+            ## middle slice
+            newimg = np.take(
+                newimg,
+                newimg.shape[1] // 2,
+                1
+            )
+            ## rotate images
+            newimg = np.rot90(newimg, k=1, axes=(0, 1))
+            if normalize_img:
+                newimg = (newimg - newimg.min()) / (newimg.max() - newimg.min())
+                newimg = (255 * newimg).astype(np.uint8)
+                # img = (255 * img).round().astype(np.uint8)
+            items = dict(
+                (key, value)
+                    for key, value in dataset.loc[dataset["MNIlin_filepath"] == fname][covs[1:]].to_dict().items()
+            )
+            yield dict(img=newimg, label=items, org_img=img)
             if idx >= max_idx - 1:
                 break
     return max_idx, iterate_images()
@@ -327,8 +418,15 @@ def open_dataset(source, *,
                  annotation_path: str = None,
                  which_dataset: str = None, max_images: Optional[int]):
     if os.path.isdir(source):
+        ## retinal (discease dataset RFMid)
+        if source.rstrip('/').endswith("RFMiD"):
+            return open_rfmid_retinal(
+                annotation_path=annotation_path,
+                max_images=max_images,
+                which_dataset=which_dataset
+            )
         ## retinal (kaggle eyepacs dataset)
-        if source.rstrip('/').endswith("diabetic_retinopathy"):
+        elif source.rstrip('/').endswith("diabetic_retinopathy"):
             return open_kaggle_eyepacs(
                 annotation_path=annotation_path,
                 max_images=max_images,
@@ -352,6 +450,16 @@ def open_dataset(source, *,
                     # "right_cerebral_cortex",
                     # "left_hippocampus",
                     # "right_hippocampus"]
+            )
+        ## nacc
+        elif source.rstrip('/').endswith("NACC"):
+            return open_nacc(
+                annotation_path=annotation_path,
+                max_images=max_images,
+                which_dataset=which_dataset,
+                covs=["MNIlin_filepath",
+                    "Age", "CDGLOBAL", "MMSE", "Sex", "Apoe4"
+                ]
             )
     elif os.path.isfile(source):
         if file_ext(source) == 'zip':
@@ -500,9 +608,9 @@ def convert_dataset(
     labels = []
     for idx, image in tqdm(enumerate(input_iter), total=num_files):
         idx_str = f'{idx:08d}'
-        if dataset_name in ["adni", "ukb"]:
+        if dataset_name in ["adni", "ukb", "nacc"]:
             archive_fname = f'{idx_str[:5]}/img{idx_str}.nii.gz'
-        elif dataset_name in ["retinal", "eyepacs"]:
+        elif dataset_name in ["retinal", "eyepacs", "rfmid"]:
             archive_fname = f'{idx_str[:5]}/img{idx_str}.jpg'
         else:
             archive_fname = f'{idx_str[:5]}/img{idx_str}.png'
@@ -535,13 +643,13 @@ def convert_dataset(
             err = [f'  dataset {k}/cur image {k}: {dataset_attrs[k]}/{cur_image_attrs[k]}' for k in dataset_attrs.keys()] # pylint: disable=unsubscriptable-object
             error(f'Image {archive_fname} attributes must be equal across all images of the dataset.  Got:\n' + '\n'.join(err))
         
-        if dataset_name == "eyepacs": ## check the inverted (direction of the image)
+        if dataset_name in ["eyepacs"]: ## check the inverted (direction of the image)
             direction = check_direction(img)
             if direction == "right":
                 img = np.fliplr(img)
                 img = np.flipud(img)
         # Save the image as an uncompressed PNG.
-        if dataset_name in ["adni", "ukb"]:
+        if dataset_name in ["adni", "ukb", "nacc"]:
             save_path = os.path.join(archive_root_dir, archive_fname)
             os.makedirs(os.path.dirname(save_path), exist_ok=True)
             img = img.reshape(*img.shape, 1)
@@ -550,7 +658,7 @@ def convert_dataset(
         else:
             img = PIL.Image.fromarray(img, { 1: 'L', 3: 'RGB' }[channels])
             image_bits = io.BytesIO()
-            if dataset_name in ["retinal", "eyepacs"]:
+            if dataset_name in ["retinal", "eyepacs", "rfmid"]:
                 img.save(image_bits, format='jpeg', compress_level=0, optimize=False)
             else:
                 img.save(image_bits, format='png', compress_level=0, optimize=False)
