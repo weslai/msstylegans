@@ -626,7 +626,7 @@ class MorphoMNISTDataset_causal(ImageFolderDataset):
         for num, l in enumerate(labels):
             temp = [l[var] for var in self.vars]
             if self.include_numbers:
-                c = F.one_hot(torch.tensor(labels["label"], dtype=torch.long), num_classes=10)
+                c = F.one_hot(torch.tensor(l["label"], dtype=torch.long), num_classes=10)
                 ll = np.concatenate([np.array(temp), c.cpu().detach().numpy()], axis=-1)
             new_labels[num, :] = ll if self.include_numbers else temp
         self.model = self._get_mu_std(new_labels)
@@ -634,7 +634,7 @@ class MorphoMNISTDataset_causal(ImageFolderDataset):
             thickness=new_labels[:, 0].reshape(-1, 1),
             intensity=new_labels[:, 1].reshape(-1, 1),
             slant=new_labels[:, 2].reshape(-1, 1),
-            classes=new_labels[:, 2:] if self.include_numbers else None)
+            classes=new_labels[:, 3:] if self.include_numbers else None)
         return new_labels
     
     def get_norm_label(self, idx):
