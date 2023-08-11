@@ -17,9 +17,9 @@ def set_dataset(dataset_name: str, which_source=None):
         return ["thickness", "slant"]
     elif dataset_name == "mnist-thickness-intensity-slant":
         if which_source == "source1":
-            return ["thickness", "intensity"]
+            return ["thickness", "intensity", "label"]
         elif which_source == "source2":
-            return ["thickness", "slant"]
+            return ["thickness", "slant", "label"]
     else:
         raise ValueError("Dataset name not found")
 
@@ -316,6 +316,14 @@ def estimate_mle(
             slant_std = slant.std(),
             residual_std = residual_std,
         )
+    digits = df[vars[-1]].values
+    num_classes = np.unique(digits)
+    digit_probs = {}
+    for cls in num_classes:
+        digit_probs[cls] = df.loc[df[vars[-1]] == cls].shape[0] / df.shape[0]
+    model.update(
+        digit_probs = digit_probs
+    )
     return model
 
 def estimate_beta1d(x, lo=40, hi=70, method="moments", eps=1e-4):

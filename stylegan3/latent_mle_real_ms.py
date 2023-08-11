@@ -27,11 +27,15 @@ def get_settings(dataset: str):
         n_components = None
         age_estimator = "beta"
         log_volumes = False
+    elif dataset == "nacc":
+        n_components = None
+        age_estimator = "beta"
+        log_volumes = False
     elif dataset == "retinal":
         n_components = 13
         age_estimator = "gmm"
         log_volumes = True
-    elif dataset == "eyepacs":
+    elif dataset in ["eyepacs", "rfmid"]:
         n_components = None
         age_estimator = None
         log_volumes = False
@@ -47,12 +51,28 @@ def set_dataset(name: str):
         VOLS = None
         VARS = ["Age", "CDGLOBAL"]
         ## ------------------------------------------------------
+    elif name == "nacc":
+        VOLS = None
+        VARS = ["Age", "Apoe4", "CDGLOBAL"]
+        ## ------------------------------------------------------
     elif name == "retinal":
         VOLS = ["diastolic_bp", "spherical_power_left"]
         VARS = ["age"] + VOLS
+        ## ------------------------------------------------------
     elif name == "eyepacs":
         VOLS = None
         VARS = ["level"]
+        ## ------------------------------------------------------
+    elif name == "rfmid":
+        VOLS = None
+        VARS = [
+            #"Disease_Risk",
+            "DR","ARMD","MH","DN","MYA",
+            "BRVO","TSLN","ERM","LS","MS","CSR","ODC","CRVO",
+            "TV","AH","ODP","ODE","ST","AION","PT","RT","RS","CRS",
+            "EDN","RPEC","MHL","RP","CWS","CB","ODPM","PRH","MNF","HR",
+            "CRAO","TD","CME","PTCR","CF","VH","MCA","VS","BRAO","PLQ","HPED","CL"
+        ]
     return VARS, VOLS
 
 class SourceSampling:
@@ -62,7 +82,7 @@ class SourceSampling:
         label_path: str = None
     ):
         self.dataset = dataset
-        assert self.dataset in ["ukb", "adni", "retinal", "eyepacs"]
+        assert self.dataset in ["ukb", "adni", "nacc", "retinal", "eyepacs", "rfmid"]
         if label_path is None:
             raise ValueError(f"{self.dataset} must have a label_path")
         else:
@@ -78,7 +98,7 @@ class SourceSampling:
         self.n_components, self.age_estimator, self.log_volumes = get_settings(self.dataset)
         ## we only know labels from the training set
         self._get_all_fnames()
-        if dataset in ["ukb", "adni"]:
+        if dataset in ["ukb", "adni", "nacc"]:
             self._image_fnames = sorted(fname for fname in self._all_fnames if self._file_ext(fname) == ".gz")
         else: ## retinal
             self._image_fnames = sorted(fname for fname in self._all_fnames if self._file_ext(fname) == ".jpg")
@@ -111,7 +131,7 @@ class SourceSampling:
         return self.df
         
     def get_causal_model(self):
-        if self.dataset != "eyepacs":
+        if self.dataset not in ["eyepacs", "rfmid"]:
             self.model = estimate_mle(
                 df = self.get_graph(),
                 dataset=self.dataset,
@@ -143,7 +163,7 @@ class SourceSampling:
     def sampling_given_age(self, age, normalize: bool = False):
         if normalize:
             ages, volumes = sample_from_model_given_age(age, self.dataset, self.model)
-            if self.dataset == "adni":
+            if self.dataset in ["adni", "nacc"]:
                 return preprocess_samples(ages, volumes, model=self.model, dataset=self.dataset)
             ages = (ages - self.model["min_age"]) / (self.model["max_age"] - self.model["min_age"])
             # ages = (ages - self.mu_std_df["mu"][self.vars[0]]) / self.mu_std_df["mu"][self.vars[0]]
@@ -178,8 +198,12 @@ def get_data(dataset: str, vars: list, path: str = None, image_fnames: list = No
         ## cdr
         if dataset == "adni":
             temp[1] = 1 if temp[1] >= 1.0 else temp[1]
+        elif dataset == "nacc":
+            temp[-1] = 1 if temp[-1] >= 1.0 else temp[-1]
         new_labels[num, :] = temp
     new_labels = pd.DataFrame(new_labels, columns=vars)
+    if dataset == "nacc":
+        new_labels = new_labels[new_labels["Apoe4"] != 9.0]
     new_labels = new_labels[vars].dropna(axis=0)
     return new_labels
 
@@ -281,6 +305,25 @@ def estimate_mle(
             cdr_encoder=OneHotEncoder().fit(df["CDGLOBAL"].values.reshape(-1, 1)),
             cdr_classes=torch.tensor([0, 0.5, 1]),
         )
+    elif dataset == "nacc":
+        ## apoe = 0, 1, 2
+        apoe_weights, apoe_bias = softmax_regression(
+        y=df["Apoe4"].values, x=df[["Age"]]
+        )
+        ## assume CDR >= 1.0 is AD (1.0, 2.0, 3.0) == 1.0
+        cdr_weights, cdr_bias = softmax_regression(
+        y=df["CDGLOBAL"].values, x=df[["Age"]]
+        )
+        model.update(
+            apoe_weights=torch.tensor(apoe_weights, dtype=torch.float),
+            apoe_bias=torch.tensor(apoe_bias, dtype=torch.float),
+            apoe_encoder=OneHotEncoder().fit(df["Apoe4"].values.reshape(-1, 1)),
+            apoe_classes=torch.tensor([0, 1, 2]),
+            cdr_weights=torch.tensor(cdr_weights, dtype=torch.float),
+            cdr_bias=torch.tensor(cdr_bias, dtype=torch.float),
+            cdr_encoder=OneHotEncoder().fit(df["CDGLOBAL"].values.reshape(-1, 1)),
+            cdr_classes=torch.tensor([0, 0.5, 1]),
+        )
     elif dataset == "ukb":
         model.update(
             vol_means=vols.mean(axis=0) if log_volumes else df[labels_vol].mean().values,
@@ -314,7 +357,7 @@ def estimate_mle(
         else: ## multivariate linear regression
             if dataset == "ukb":
                 vol_weights, vol_bias, vol_sigma = mv_linear_regression(
-                    y=vols, x=df[["age", "sex"]]
+                    y=vols, x=df[["age"]]
                 )
             model["vol_weights"] = torch.tensor(vol_weights, dtype=torch.float)
             model["vol_bias"] = torch.tensor(vol_bias, dtype=torch.float)
@@ -335,10 +378,16 @@ def estimate_model(
         for cls in level_classes:
             prob = df.loc[df[vars[0]] == cls].shape[0] / len(df)
             level_prob[cls] = prob
-        return level_prob 
+        return level_prob
+    elif dataset == "rfmid":
+        cls_prob = {}
+        for var in vars:
+            labels = df[var].values
+            cls_prob[var] =  np.sum(labels)/ len(df)
+        return cls_prob
 
 def sample_from_model(dataset: str, model, num_samples=100):
-    if dataset != "eyepacs":
+    if dataset not in ["eyepacs", "rfmid"]:
         if model["age_model"] == "normal":
             A = torch.normal(model["mu_age"], model["sigma_age"], size=(num_samples, 1))
         elif model["age_model"] == "beta":
@@ -361,11 +410,15 @@ def sample_from_model(dataset: str, model, num_samples=100):
         else:
             raise ValueError(model["age_model"])
         X = A
-        if dataset == "adni":
+        if dataset in ["adni", "nacc"]:
             cdr_prob = torch.softmax(X @ model["cdr_weights"].T + model["cdr_bias"], dim=1)
             V = model["cdr_classes"][torch.multinomial(cdr_prob, num_samples=1)]
+        if dataset == "nacc":
+            apoe_prob = torch.softmax(X @ model["apoe_weights"].T + model["apoe_bias"], dim=1)
+            apoe = model["apoe_classes"][torch.multinomial(apoe_prob, num_samples=1)]
+            V = torch.cat((apoe, V), dim=1)
 
-        if dataset != "adni":
+        if dataset not in ["adni", "nacc"]:
             if "vol_gmm" in model:
                 V = sample_from_gmm_custom(
                     x=X, indices=model["vol_indices"], gmm=model["vol_gmm"]
@@ -384,10 +437,15 @@ def sample_from_model(dataset: str, model, num_samples=100):
                     V[:, 1] = temp_v
                 else:
                     V = V - model["log_shift"]
-    else:
+    elif dataset == "eyepacs":
         A = None
         V = np.random.choice(list(model.keys()), size=(num_samples, 1), p=list(model.values()))
-        return A, V
+        return A, torch.tensor(V)
+    elif dataset == "rfmid":
+        A = None
+        V = torch.zeros((num_samples, len(model)))
+        for i, var in enumerate(model.keys()):
+            V[:, i] = (torch.rand((num_samples,)) < model[var]) * 1.0
     return A, V
 
 def sample_from_model_given_age(age, dataset: str, model):
@@ -399,11 +457,15 @@ def sample_from_model_given_age(age, dataset: str, model):
     age = age.reshape(-1, 1)
     if type(age) != torch.Tensor:
             age = torch.tensor(age, dtype=torch.float32)
-    if dataset == "adni":
+    if dataset in ["adni", "nacc"]:
         cdr_prob = torch.softmax(age @ model["cdr_weights"].T + model["cdr_bias"], dim=1)
         V = model["cdr_classes"][torch.multinomial(cdr_prob, num_samples=1)]
+    if dataset == "nacc":
+        apoe_prob = torch.softmax(age @ model["apoe_weights"].T + model["apoe_bias"], dim=1)
+        apoe = model["apoe_classes"][torch.multinomial(apoe_prob, num_samples=1)]
+        V = torch.cat((apoe, V), dim=1)
 
-    if dataset != "adni":
+    if dataset not in ["adni", "nacc"]:
         if "vol_gmm" in model:
             V = sample_from_gmm_custom(
                 x=age, indices=model["vol_indices"], gmm=model["vol_gmm"]
@@ -440,9 +502,10 @@ def preprocess_samples(A=None, V=None, model=None, dataset:str = None):
                 V = (torch.log(V) - model["c_means"]) / model["c_std"]
         else:
             V = (V - model["c_means"]) / model["c_std"]
-    elif dataset == "adni":
+    elif dataset in ["adni", "nacc"]:
         ## one hot encode
-        V = torch.tensor(model["cdr_encoder"].transform(V).toarray())
+        cdr = torch.tensor(model["cdr_encoder"].transform(V[:, -1].reshape(-1, 1)).toarray())
+        V = cdr
     elif dataset == "eyepacs":
         num_classes = len(model.keys())
         V = F.one_hot(torch.tensor(V, dtype=torch.long), num_classes=num_classes)
@@ -450,6 +513,9 @@ def preprocess_samples(A=None, V=None, model=None, dataset:str = None):
         return V
     else:
         raise ValueError(f'{dataset} is wrong')
+    if dataset == "nacc":
+        apoe = torch.tensor(model["apoe_encoder"].transform(V[:, 0].reshape(-1, 1)).toarray())
+        V = torch.cat((apoe, cdr), dim=1)
     A = (A - model["min_age"]) / (model["max_age"] - model["min_age"])
     return torch.cat([A, V], 1)
 

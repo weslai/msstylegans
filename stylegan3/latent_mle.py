@@ -81,7 +81,7 @@ class CausalSampling:
                 temp_path = self.label_path.split("/")[:-2]
                 self.label_path = "/" + os.path.join(*temp_path) + "/trainset/"
         
-        self.which_source = self.label_path.split("/")[-3].split("_")[-1]
+        self.which_source = self.label_path.split("/")[-3].split("_")[-2]
         print(f"which_source: {self.which_source}")
         assert self.which_source.startswith("source")
         self.vars, self.vols = set_dataset(self.dataset, self.which_source)
