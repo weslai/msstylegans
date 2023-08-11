@@ -19,11 +19,12 @@ import torch
 import dnnlib
 
 ### Own
-from training.dataset import ConcatDataset
+from training.dataset_real_ms import ConcatDataset
 #----------------------------------------------------------------------------
 
 class MetricOptions:
-    def __init__(self, G=None, G_kwargs={}, dataset_kwargs={}, dataset_kwargs_1=None, sampler=None,
+    def __init__(self, G=None, G_kwargs={}, dataset_kwargs={}, dataset_kwargs_1=None,
+                 dataset_kwargs_2=None, sampler=None,
                  num_gpus=1, rank=0, device=None, progress=None, cache=True):
         assert 0 <= rank < num_gpus
         self.G              = G
@@ -33,20 +34,14 @@ class MetricOptions:
         if dataset_kwargs_1 is not None:
             assert sampler is not None
             self.dataset_kwargs_1 = dnnlib.EasyDict(dataset_kwargs_1)
-            if self.dataset_kwargs.data_name == "ukb":
-                self.dataset_kwargs.update(class_name="evaluations.eval_dataset.UKBiobankMRIDataset2D")
-                self.dataset_kwargs_1.update(class_name="evaluations.eval_dataset.UKBiobankMRIDataset2D")
-            elif self.dataset_kwargs.data_name == "retinal":
-                self.dataset_kwargs.update(class_name="evaluations.eval_dataset.UKBiobankRetinalDataset2D")
-                self.dataset_kwargs_1.update(class_name="evaluations.eval_dataset.UKBiobankRetinalDataset2D")
-            elif self.dataset_kwargs.data_name == "mnist-thickness-intensity-slant":
-                self.dataset_kwargs.update(class_name="evaluations.eval_dataset.MorphoMNISTDataset_causal")
-                self.dataset_kwargs_1.update(class_name="evaluations.eval_dataset.MorphoMNISTDataset_causal")
             self.dataset_kwargs_1.update(max_size=None, xflip=False)
-            self.sampler1, self.sampler2 = sampler
+            self.dataset_kwargs_2 = dnnlib.EasyDict(dataset_kwargs_2)
+            self.dataset_kwargs_2.update(max_size=None, xflip=False)
+            self.sampler1, self.sampler2, self.sampler3 = sampler
         else:
             self.dataset_kwargs_1 = None
-            self.sampler1, self.sampler2 = None, None
+            self.dataset_kwargs_2 = None
+            self.sampler1, self.sampler2, self.sampler3 = None, None, None
         self.num_gpus       = num_gpus
         self.rank           = rank
         self.device         = device if device is not None else torch.device('cuda', rank)
@@ -84,56 +79,67 @@ def iterate_random_labels(opts, batch_size):
         dataset = dnnlib.util.construct_class_by_name(**opts.dataset_kwargs)
         if opts.dataset_kwargs_1 is not None:
             dataset1 = dnnlib.util.construct_class_by_name(**opts.dataset_kwargs_1)
-            concat_dataset = ConcatDataset(dataset, dataset1)
+            dataset2 = dnnlib.util.construct_class_by_name(**opts.dataset_kwargs_2)
+            concat_dataset = ConcatDataset(dataset, dataset1, dataset2)
             while True:
                 c = []
-                for _i in range(batch_size//2):
-                    source1, source2 = concat_dataset[np.random.randint(len(concat_dataset))]
-                    label1, label2 = source1[1], source2[1]
-                    if dataset.data_name == "mnist-thickness-intensity-slant":
-                        label1_norm = dataset._normalise_labels(label1[0].reshape(-1, 1), label1[1].reshape(-1, 1),
-                                                            label1[2].reshape(-1, 1), label1[3:].reshape(1, -1))
-                        label2_norm = dataset1._normalise_labels(label2[0].reshape(-1, 1), label2[1].reshape(-1, 1),
-                                                            label2[2].reshape(-1, 1), label2[3:].reshape(1, -1))
+                for _i in range(batch_size//3):
+                    source1, source2, source3 = concat_dataset[np.random.randint(len(concat_dataset))]
+                    label1, label2, label3 = source1[1], source2[1], source3[1]
+                    if dataset.data_name == "ukb": ## MRI
+                        ## estimation c3
+                        c1 = label1[0] * (dataset.model["age_max"] - dataset.model["age_min"]) + dataset.model["age_min"]
+                        label_w_c3 = opts.sampler2.sampling_given_age(torch.tensor(c1).reshape(-1, 1), normalize=True)
+                        label_w_c4 = opts.sampler3.sampling_given_age(torch.tensor(c1).reshape(-1, 1), normalize=True)
+                        c_source = torch.tensor([1, 0, 0]).reshape(1, -1)
+                        source1_labels = torch.concat([torch.tensor(label1).reshape(1, -1), label_w_c3[0, 1:].reshape(1, -1),
+                                                        label_w_c4[0, 1:].reshape(1, -1), c_source], dim=1)
+                        ## estimate c2
+                        c1 = label2[0] * (dataset1.model["age_max"] - dataset1.model["age_min"]) + dataset1.model["age_min"]
+                        label_w_c2 = opts.sampler1.sampling_given_age(torch.tensor(c1).reshape(-1, 1), normalize=True)
+                        label_w_c4 = opts.sampler3.sampling_given_age(torch.tensor(c1).reshape(-1, 1), normalize=True)
+                        c_source = torch.tensor([0, 1, 0]).reshape(1, -1)
+                        label2 = torch.tensor(label2)
+                        source2_labels = torch.concat(
+                            [label2[0].reshape(1, -1), label_w_c2[0, 1:].reshape(1, -1), label2[1:].reshape(1, -1), 
+                            label_w_c4[0, 1:4].reshape(1, -1), c_source],
+                            dim=1
+                        )
+                        ## estimate c2, c3
+                        c1 = label3[0] * (dataset2.model["age_max"] - dataset2.model["age_min"]) + dataset2.model["age_min"]
+                        label_w_c2 = opts.sampler1.sampling_given_age(torch.tensor(c1).reshape(-1, 1), normalize=True)
+                        c_source = torch.tensor([0, 0, 1]).reshape(1, -1)
+                        label3 = torch.tensor(label3)
+                        source3_labels = torch.concat(
+                            [label3[0].reshape(1, -1), label_w_c2[0, 1:].reshape(1, -1), label3[4:].reshape(1, -1),
+                            label3[1:4].reshape(1, -1), c_source],
+                            dim=1
+                        )
+                    elif dataset.data_name == "retinal":
+                        ## estimate c3 for source1
+                        gen_c3 = opts.sampler2.sampling_model(1)[-1].reshape(1, -1)
+                        gen_c4 = opts.sampler3.sampling_model(1)[-1].reshape(1, -1)
+                        c_source = torch.tensor([1, 0, 0]).reshape(1, -1)
+                        source1_labels = torch.concat([torch.tensor(label1).reshape(1, -1), 
+                                                       gen_c3, gen_c4, c_source], dim=1) 
+                        ## estimate c2 for source2
+                        gen_c12 = opts.sampler1.sample_normalize(1).reshape(1, -1)
+                        gen_c4 = opts.sampler3.sampling_model(1)[-1].reshape(1, -1)
+                        c_source = torch.tensor([0, 1, 0]).reshape(1, -1)
+                        label2 = torch.tensor(label2)
+                        source2_labels = torch.concat(
+                            [gen_c12, label2.reshape(1, -1), gen_c4, c_source], dim=1)
+                        ## estimate c2, c3 for source3
+                        gen_c12 = opts.sampler1.sample_normalize(1).reshape(1, -1)
+                        gen_c3 = opts.sampler2.sampling_model(1)[-1].reshape(1, -1)
+                        c_source = torch.tensor([0, 0, 1]).reshape(1, -1)
+                        label3 = torch.tensor(label3)
+                        source2_labels = torch.concat(
+                            [gen_c12, gen_c3, label3.reshape(1, -1), c_source], dim=1)
                     else:
-                        label1_norm = dataset._normalise_labels(label1[0].reshape(-1, 1), label1[1].reshape(-1, 1),
-                                                            label1[2].reshape(-1, 1))
-                        label2_norm = dataset1._normalise_labels(label2[0].reshape(-1, 1), label2[1].reshape(-1, 1),
-                                                            label2[2].reshape(-1, 1))
-                        
-                    label1_norm = torch.from_numpy(label1_norm)
-                    label2_norm = torch.from_numpy(label2_norm)
-                    label_concat = torch.cat([label1_norm, label2_norm], dim=0)
-                    c.append(label_concat)
-                    # if dataset.data_name == "mnist-thickness-intensity" or dataset.data_name == "mnist-thickness-intensity-slant":
-                    #     ## estimation
-                    #     c1 = label1[0] * dataset1.model["thickness_std"] + dataset1.model["thickness_mu"]
-                    #     _, c3 = opts.sampler2.sampling_slant(torch.tensor(c1), normalize=True, model_=dataset1.model)
-                    #     source1_labels = torch.concat([torch.tensor(label1).reshape(1, -1), c3], dim=1)
-                    #     ## estimate intensities
-                    #     c1 = label2[0] * dataset.model["thickness_std"] + dataset.model["thickness_mu"]
-                    #     _, c2 = opts.sampler1.sampling_intensity(torch.tensor(c1), normalize=True, model_=dataset.model)
-                    #     label2 = torch.tensor(label2)
-                    #     source2_labels = torch.concat([label2[0].reshape(-1, 1), c2, label2[1].reshape(-1, 1)], dim=1)
-                    #     concat_labels = torch.concat([source1_labels, source2_labels], dim=0)
-                    # elif dataset.data_name == "ukb" or dataset.data_name == "retinal":
-                    #     ## estimation ventricle volumes
-                    #     c1 = label1[0] * (dataset.model["age_max"] - dataset.model["age_min"]) + dataset.model["age_min"]
-                    #     label_w_c3 = opts.sampler2.sampling_given_age(torch.tensor(c1).reshape(-1, 1), normalize=True)
-                    #     source1_labels = torch.concat([torch.tensor(label1).reshape(1, -1), label_w_c3[0, -1].reshape(-1, 1)], 
-                    #                                   dim=1)
-                    #     ## estimate brain volumes
-                    #     c1 = label2[0] * (dataset1.model["age_max"] - dataset1.model["age_min"]) + dataset1.model["age_min"]
-                    #     label_w_c2 = opts.sampler1.sampling_given_age(torch.tensor(c1).reshape(-1, 1), normalize=True)
-                    #     label2 = torch.tensor(label2)
-                    #     source2_labels = torch.concat(
-                    #         [label2[0].reshape(1, -1), label_w_c2[0, -1].reshape(-1, 1), label2[1].reshape(1, -1)],
-                    #         dim=1
-                    #     )
-                    #     concat_labels = torch.concat([source1_labels, source2_labels], dim=0)
-                    # else:
-                    #     raise NotImplementedError("Unknown dataset")
-                    
+                        raise NotImplementedError("Unknown dataset")
+                    concat_labels = torch.concat([source1_labels, source2_labels], dim=0)
+                    c.append(concat_labels)
                 c = torch.concat(c).pin_memory().to(opts.device)
                 yield c
         else:

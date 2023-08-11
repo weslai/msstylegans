@@ -17,6 +17,7 @@ import dnnlib
 from . import metric_utils
 from . import metric_utils_stratified
 from . import metric_utils_real_ms
+from . import metric_utils_tri_ms
 from . import frechet_inception_distance
 from . import kernel_inception_distance
 from . import precision_recall
@@ -92,7 +93,32 @@ def calc_metric_real_ms(metric, **kwargs): # See metric_utils.MetricOptions for 
         total_time_str  = dnnlib.util.format_time(total_time),
         num_gpus        = opts.num_gpus,
     )
+# ----------------------------------------------------------------------------
+def calc_metric_tri_ms(metric, **kwargs): # See metric_utils.MetricOptions for the full list of arguments.
+    assert is_valid_metric(metric)
+    opts = metric_utils_tri_ms.MetricOptions(**kwargs)
 
+    # Calculate.
+    start_time = time.time()
+    results = _metric_dict[metric](opts)
+    total_time = time.time() - start_time
+
+    # Broadcast results.
+    for key, value in list(results.items()):
+        if opts.num_gpus > 1:
+            value = torch.as_tensor(value, dtype=torch.float64, device=opts.device)
+            torch.distributed.broadcast(tensor=value, src=0)
+            value = float(value.cpu())
+        results[key] = value
+
+    # Decorate with metadata.
+    return dnnlib.EasyDict(
+        results         = dnnlib.EasyDict(results),
+        metric          = metric,
+        total_time      = total_time,
+        total_time_str  = dnnlib.util.format_time(total_time),
+        num_gpus        = opts.num_gpus,
+    )
 #----------------------------------------------------------------------------
 def calc_metric_ms(metric, **kwargs): # See metric_utils.MetricOptions for the full list of arguments.
     assert is_valid_metric(metric)
@@ -209,4 +235,9 @@ def is50k(opts):
 def fid50k_ms_real(opts):
     opts.dataset_kwargs.update(max_size=None, xflip=False)
     fid = frechet_inception_distance.compute_fid_real_ms(opts, max_real=None, num_gen=50000)
+    return dict(fid50k_full=fid)
+@register_metric
+def fid50k_tri_real(opts):
+    opts.dataset_kwargs.update(max_size=None, xflip=False)
+    fid = frechet_inception_distance.compute_fid_tri_ms(opts, max_real=None, num_gen=50000)
     return dict(fid50k_full=fid)

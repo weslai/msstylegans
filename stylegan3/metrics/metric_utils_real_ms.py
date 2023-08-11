@@ -81,39 +81,38 @@ def iterate_random_labels(opts, batch_size):
                 for _i in range(batch_size//2):
                     source1, source2 = concat_dataset[np.random.randint(len(concat_dataset))]
                     label1, label2 = source1[1], source2[1]
-                    if dataset.data_name == "ukb":
+                    if dataset.data_name == "ukb": ## MRI
                         ## estimation c3
                         c1 = label1[0] * (dataset.model["age_max"] - dataset.model["age_min"]) + dataset.model["age_min"]
                         label_w_c3 = opts.sampler2.sampling_given_age(torch.tensor(c1).reshape(-1, 1), normalize=True)
-                        c_source = torch.tensor([1, 0]).reshape(1, -1)
+                        c_source = torch.tensor([0]).reshape(1, -1)
                         source1_labels = torch.concat([torch.tensor(label1).reshape(1, -1), label_w_c3[0, 1:].reshape(1, -1),
                                                       c_source], dim=1)
                         ## estimate c2
                         c1 = label2[0] * (dataset1.model["age_max"] - dataset1.model["age_min"]) + dataset1.model["age_min"]
                         label_w_c2 = opts.sampler1.sampling_given_age(torch.tensor(c1).reshape(-1, 1), normalize=True)
-                        c_source = torch.tensor([0, 1]).reshape(1, -1)
+                        c_source = torch.tensor([1]).reshape(1, -1)
                         label2 = torch.tensor(label2)
                         source2_labels = torch.concat(
                             [label2[0].reshape(1, -1), label_w_c2[0, 1:].reshape(1, -1), label2[1:].reshape(1, -1), c_source],
                             dim=1
                         )
-                        concat_labels = torch.concat([source1_labels, source2_labels], dim=0)
                     elif dataset.data_name == "retinal":
                         ## estimate c3 for source1
-                        gen_c3 = opts.sampler2.sample_normalize(1).reshape(1, -1)
-                        c_source = torch.tensor([1, 0]).reshape(1, -1)
+                        gen_c3 = opts.sampler2.sampling_model(1)[-1].reshape(1, -1)
+                        c_source = torch.tensor([0]).reshape(1, -1)
                         source1_labels = torch.concat([torch.tensor(label1).reshape(1, -1), 
                                                        gen_c3, 
                                                        c_source], dim=1)
                         ## estimate c2 for source2
                         gen_c12 = opts.sampler1.sample_normalize(1).reshape(1, -1)
-                        c_source = torch.tensor([0, 1]).reshape(1, -1)
+                        c_source = torch.tensor([1]).reshape(1, -1)
                         label2 = torch.tensor(label2)
                         source2_labels = torch.concat(
                             [gen_c12, label2.reshape(1, -1), c_source], dim=1)
-                        concat_labels = torch.concat([source1_labels, source2_labels], dim=0)
                     else:
                         raise NotImplementedError("Unknown dataset")
+                    concat_labels = torch.concat([source1_labels, source2_labels], dim=0)
                     c.append(concat_labels)
                 c = torch.concat(c).pin_memory().to(opts.device)
                 yield c
