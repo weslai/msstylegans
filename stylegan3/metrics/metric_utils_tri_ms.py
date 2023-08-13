@@ -93,7 +93,7 @@ def iterate_random_labels(opts, batch_size):
                         label_w_c4 = opts.sampler3.sampling_given_age(torch.tensor(c1).reshape(-1, 1), normalize=True)
                         c_source = torch.tensor([1, 0, 0]).reshape(1, -1)
                         source1_labels = torch.concat([torch.tensor(label1).reshape(1, -1), label_w_c3[0, 1:].reshape(1, -1),
-                                                        label_w_c4[0, 1:].reshape(1, -1), c_source], dim=1)
+                                                        label_w_c4[0, 1:4].reshape(1, -1), c_source], dim=1)
                         ## estimate c2
                         c1 = label2[0] * (dataset1.model["age_max"] - dataset1.model["age_min"]) + dataset1.model["age_min"]
                         label_w_c2 = opts.sampler1.sampling_given_age(torch.tensor(c1).reshape(-1, 1), normalize=True)
@@ -112,7 +112,7 @@ def iterate_random_labels(opts, batch_size):
                         label3 = torch.tensor(label3)
                         source3_labels = torch.concat(
                             [label3[0].reshape(1, -1), label_w_c2[0, 1:].reshape(1, -1), label3[4:].reshape(1, -1),
-                            label3[1:4].reshape(1, -1), c_source],
+                            label3[1:4].reshape(1, -1), c_source], ## age, volumes, cdr, apoe
                             dim=1
                         )
                     elif dataset.data_name == "retinal":
@@ -134,11 +134,11 @@ def iterate_random_labels(opts, batch_size):
                         gen_c3 = opts.sampler2.sampling_model(1)[-1].reshape(1, -1)
                         c_source = torch.tensor([0, 0, 1]).reshape(1, -1)
                         label3 = torch.tensor(label3)
-                        source2_labels = torch.concat(
+                        source3_labels = torch.concat(
                             [gen_c12, gen_c3, label3.reshape(1, -1), c_source], dim=1)
                     else:
                         raise NotImplementedError("Unknown dataset")
-                    concat_labels = torch.concat([source1_labels, source2_labels], dim=0)
+                    concat_labels = torch.concat([source1_labels, source2_labels, source3_labels], dim=0)
                     c.append(concat_labels)
                 c = torch.concat(c).pin_memory().to(opts.device)
                 yield c
@@ -349,9 +349,9 @@ def compute_feature_stats_for_dataset(opts, detector_url, detector_kwargs, rel_l
 
 #----------------------------------------------------------------------------
 
-def compute_feature_stats_for_generator(opts, detector_url, detector_kwargs, rel_lo=0, rel_hi=1, batch_size=64, batch_gen=None, **stats_kwargs):
+def compute_feature_stats_for_generator(opts, detector_url, detector_kwargs, rel_lo=0, rel_hi=1, batch_size=60, batch_gen=None, **stats_kwargs):
     if batch_gen is None:
-        batch_gen = min(batch_size, 4)
+        batch_gen = min(batch_size, 6)
     assert batch_size % batch_gen == 0
 
     # Setup generator and labels.

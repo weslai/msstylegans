@@ -260,7 +260,7 @@ class StyleGAN2Loss(Loss):
                         real_c = real_c.float()
                         mse_loss = torch.nn.functional.mse_loss(real_cmap_pred, real_c[:, 0:4])
                         bce_discease_loss = 0
-                        for i in range(real.shape[-1]):
+                        for i in range(real_discease_pred.shape[-1]):
                             bce_discease_loss += torch.nn.functional.binary_cross_entropy(
                                 torch.sigmoid(real_discease_pred[:, i]), real_c[:, 4+i])
                         source = torch.where(real_c[:, -3:] == 1)[1]
