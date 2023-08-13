@@ -153,6 +153,7 @@ def plot_covs_images_threesources(
 def plot_negpos_images(
     real_images: dict,
     gen_images: dict,
+    labels: dict,
     dataset_name: str,
     c2_name = None,
     c3_name = None,
@@ -160,7 +161,7 @@ def plot_negpos_images(
     single_source: bool = True
 ):
     if single_source:
-        if dataset_name in ["mnist-thickness-intensity", "mnist-thickness-slant", "mnist-thickness-intensity-slant"]:
+        if dataset_name == "mnist-thickness-intensity-slant":
             c2_name = "thickness"
             c3_name = "intensity" if dataset_name.split("_")[-1] == "source1" else "slant"
         elif dataset_name.split("_")[0] == "ukb":
@@ -170,13 +171,15 @@ def plot_negpos_images(
             c2_name = "age"
             c3_name = "diastolic bp" if dataset_name.split("_")[-1] == "source1" else "spherical power"
             dataset_name = "retinal"
+
     sns.set_style("ticks")
     sns.set_context("paper")
     sns.set_palette("colorblind")
-    fig = plt.figure(figsize=(24, 8))
+    fig = plt.figure(figsize=(14, 9))
     for i in range(4):
         reimgs = real_images[str(i)].cpu().detach().numpy()
         genimgs = gen_images[str(i)].cpu().detach().numpy()
+        real_labels = labels[str(i)]
         nrows = 1
         ncols = int(gen_images[str(i)].shape[0] // nrows)
         gs = gridspec.GridSpec(nrows, ncols,
@@ -186,22 +189,22 @@ def plot_negpos_images(
             wspace=0.0, hspace=0.0
         )
         if i == 0:
-            gs.update(left=0.05, right=0.48, bottom=0.52, top=0.72)
-            gs1.update(left=0.05, right=0.48, bottom=0.75, top=0.95)
+            gs.update(left=0.02, right=0.50, bottom=0.51, top=0.73)
+            gs1.update(left=0.02, right=0.50, bottom=0.75, top=0.95)
         elif i == 1:
-            gs.update(left=0.52, right=0.95, bottom=0.52, top=0.72)
-            gs1.update(left=0.52, right=0.95, bottom=0.75, top=0.95)
+            gs.update(left=0.52, right=0.97, bottom=0.51, top=0.73)
+            gs1.update(left=0.52, right=0.97, bottom=0.75, top=0.95)
         elif i == 2:
-            gs.update(left=0.05, right=0.48, bottom=0.05, top=0.25)
-            gs1.update(left=0.05, right=0.48, bottom=0.27, top=0.48)
+            gs.update(left=0.02, right=0.50, bottom=0.03, top=0.25)
+            gs1.update(left=0.02, right=0.50, bottom=0.26, top=0.50)
         elif i == 3:
-            gs.update(left=0.52, right=0.95, bottom=0.05, top=0.25)
-            gs1.update(left=0.52, right=0.95, bottom=0.27, top=0.48)
+            gs.update(left=0.52, right=0.97, bottom=0.03, top=0.25)
+            gs1.update(left=0.52, right=0.97, bottom=0.26, top=0.50)
         
         for i in range(nrows):
-            for j in range(ncols):
-                ax = plt.subplot(gs[i, j])
-                ax1 = plt.subplot(gs1[i, j])
+            for j in range(ncols): 
+                ax = plt.subplot(gs[i, j]) ### real
+                ax1 = plt.subplot(gs1[i, j]) ### generated
                 if dataset_name == "retinal":
                     img = reimgs[i * ncols + j] ### (M, M, 3)
                     ax.imshow(img, vmin=0, vmax=255)
@@ -215,13 +218,27 @@ def plot_negpos_images(
                 if j == 0:
                     ax.set_ylabel("Real", fontsize=12)
                     ax1.set_ylabel("Generated", fontsize=12)
+                if i == nrows - 1:
+                    ax.set_xlabel("{:.2f}".format(real_labels[i * ncols + j][1]), fontsize=10)
                 # if i == nrows - 1:
                 #     ax.set_xlabel("{:.2f}".format(c3[j][0]), fontsize=8)
                 ax.set_xticklabels([])
                 ax.set_yticklabels([])
                 ax1.set_xticklabels([])
                 ax1.set_yticklabels([])
-    fig.suptitle("Most Negative images                                 Most Postive images", fontsize=18)
+        ax_sub = fig.add_subplot(gs[:])
+        ax_sub.axis("off")
+        ax_sub1 = fig.add_subplot(gs1[:])
+        ax_sub1.axis("off")
+        if i == 0:
+            ax_sub1.set_title("The smallest c2 and c3", fontsize=14)
+        elif i == 1:
+            ax_sub1.set_title("The smallest c2 and the largest c3", fontsize=14)
+        elif i == 2:
+            ax_sub1.set_title("The largest c2 and the smallest c3", fontsize=14)
+        elif i == 3:
+            ax_sub1.set_title("The largest c2 and c3", fontsize=14)
+    fig.suptitle(f"The comparison between real and generated images by controlling {c2_name}, {c3_name}", fontsize=18)
     fig.supxlabel(f"c3: {c3_name}", fontsize=18)
     fig.supylabel(f"c2: {c2_name}", fontsize=18)
     # xmin, xmax, ymin, ymax = plt.axis()

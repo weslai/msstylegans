@@ -58,19 +58,20 @@ def make_transform(translate: Tuple[float,float], angle: float):
 #----------------------------------------------------------------------------
 def get_covs(dataset):
     if dataset == "retinal":
-        COVS = {"c1": "age", "c2": "diastolic bp", "c3": "spherical power left"}
+        COVS = {"c1": "age", "c2": "diastolic bp", "c3": "spherical power"}
     elif dataset == "ukb":
-        pass
+        COVS = {"c1": "age", "c2": "ventricle", "c3": "grey matter"}
     elif dataset == "mnist-thickness-intensity-slant":
         COVS = {"c1": "thickness", "c2": "intensity", "c3": "slant"}
     return COVS
 #----------------------------------------------------------------------------
 
 @click.command()
+@click.option('--network_pkl', 'network_pkl', help='Network pickle filename', default=None)
 @click.option('--network', 'metric_jsonl', help='Metric jsonl file for one training', required=True)
 @click.option('--group-by', 'group_by', type=str, default="c1", show_default=True)
-@click.option('--dataset', 'dataset', type=click.Choice(['mnist-thickness-intensity', 'mnist-thickness-slant', 
-                                                         'mnist-thickness-intensity-slant', 'ukb', 
+@click.option('--quantile', 'quantile', type=float, default=0.95, show_default=True)
+@click.option('--dataset', 'dataset', type=click.Choice(['mnist-thickness-intensity-slant', 'ukb', 
                                                          'retinal', None]),
               default=None, show_default=True)
 @click.option('--data-path1', 'data_path1', type=str, help='Path to the data source 1', required=True)
@@ -85,8 +86,10 @@ def get_covs(dataset):
               show_default=True, metavar='ANGLE')
 @click.option('--outdir', help='Where to save the output images', type=str, required=True, metavar='DIR')
 def run_visualizer_neg_pos_covs(
+    network_pkl: str,
     metric_jsonl: str,
     group_by: str,
+    quantile: float,
     dataset: str,
     data_path1: str,
     data_path2: str,
@@ -113,7 +116,7 @@ def run_visualizer_neg_pos_covs(
     num_images = 5
     # Load the network.
     Gen = load_generator(
-        network_pkl=None,
+        network_pkl=network_pkl,
         metric_jsonl=metric_jsonl,
         use_cuda=True
     )
@@ -144,72 +147,80 @@ def run_visualizer_neg_pos_covs(
                                       use_labels=True,
                                       xflip=False)
 
-    elif dataset in ["mnist-thickness-intensity", "mnist-thickness-slant", "mnist-thickness-intensity-slant"]:
-        dataset2 = "mnist-thickness-intensity-slant"
-        # dataset2 = "mnist-thickness-slant" if dataset == "mnist-thickness-intensity" else "mnist-thickness-intensity"
-        ## seed is as the common convariate (c1)
+    elif dataset == "mnist-thickness-intensity-slant":
         ds1 = MorphoMNISTDataset_causal(data_name=dataset,
                                         path=data_path1,
                                         mode="test",
                                         use_labels=True,
                                         xflip=False)
-        ds2 = MorphoMNISTDataset_causal(data_name=dataset2,
+        ds2 = MorphoMNISTDataset_causal(data_name=dataset,
                                         path=data_path2,
                                         mode="test",
                                         use_labels=True,
                                         xflip=False)
-    labels1 = ds1._load_raw_labels() ## (c1, c2)
-    labels2 = ds2._load_raw_labels() ## (c1, c3)
+    labels1 = ds1._load_raw_labels() ## (c1, c2, c3)
+    labels2 = ds2._load_raw_labels() ## (c1, c2, c3)
     len_labels1 = labels1.shape[0]
     all_labels = np.concatenate([labels1, labels2], axis=0)
-    if group_by == "c1":
-        min_sort_criteria = np.quantile(all_labels, 0.05, axis=0)
-        max_sort_criteria = np.quantile(all_labels, 0.95, axis=0)
+
+    min_sort_criteria = np.quantile(all_labels, 1 - quantile, axis=0)
+    max_sort_criteria = np.quantile(all_labels, quantile, axis=0)
+    if group_by == "c1": ## c2, c3
         min_all_labels_idxs = np.where((all_labels[:, 1] <= min_sort_criteria[1]) & (all_labels[:, 2] <= min_sort_criteria[2]))[0][:num_images]
         max_labels_1_idxs = np.where((all_labels[:, 1] <= min_sort_criteria[1]) & (all_labels[:, 2] >= max_sort_criteria[2]))[0][:num_images]
         max_labels_2_idxs = np.where((all_labels[:, 1] >= max_sort_criteria[1]) & (all_labels[:, 2] <= min_sort_criteria[2]))[0][:num_images]
         max_all_labels_idxs = np.where((all_labels[:, 1] >= max_sort_criteria[1]) & (all_labels[:, 2] >= max_sort_criteria[2]))[0][:num_images]
-
-    elif group_by == "c2":
-        pass
-    elif group_by == "c3":
-        pass
+    elif group_by == "c2": ## c1, c3
+        min_all_labels_idxs = np.where((all_labels[:, 0] <= min_sort_criteria[0]) & (all_labels[:, 2] <= min_sort_criteria[2]))[0][:num_images]
+        max_labels_1_idxs = np.where((all_labels[:, 0] <= min_sort_criteria[0]) & (all_labels[:, 2] >= max_sort_criteria[2]))[0][:num_images]
+        max_labels_2_idxs = np.where((all_labels[:, 0] >= max_sort_criteria[0]) & (all_labels[:, 2] <= min_sort_criteria[2]))[0][:num_images]
+        max_all_labels_idxs = np.where((all_labels[:, 0] >= max_sort_criteria[0]) & (all_labels[:, 2] >= max_sort_criteria[2]))[0][:num_images]
+    elif group_by == "c3": ## c1, c2
+        min_all_labels_idxs = np.where((all_labels[:, 0] <= min_sort_criteria[0]) & (all_labels[:, 1] <= min_sort_criteria[1]))[0][:num_images]
+        max_labels_1_idxs = np.where((all_labels[:, 0] <= min_sort_criteria[0]) & (all_labels[:, 1] >= max_sort_criteria[1]))[0][:num_images]
+        max_labels_2_idxs = np.where((all_labels[:, 0] >= max_sort_criteria[0]) & (all_labels[:, 1] <= min_sort_criteria[1]))[0][:num_images]
+        max_all_labels_idxs = np.where((all_labels[:, 0] >= max_sort_criteria[0]) & (all_labels[:, 1] >= max_sort_criteria[1]))[0][:num_images]
     
     # Generate images.
     for i in range(num_plots):
         real_dict = {}
         gen_dict = {}
+        labels_dict = {}
         num = 0
-        for which, labels in enumerate([min_all_labels_idxs, max_labels_1_idxs, max_labels_2_idxs, max_all_labels_idxs]):
+        for labels in [min_all_labels_idxs, max_labels_1_idxs, max_labels_2_idxs, max_all_labels_idxs]:
             real_images = []
             gen_images = []
-            for seed_idx, idx in enumerate(labels):
+            real_labels = []
+            for idx in labels:
                 # print('Generating image for seed %d (%d/%d) ...' % (seed, seed_idx, len(seeds)))
                 seed = np.random.randint(0, 100000)
                 z = torch.from_numpy(np.random.RandomState(seed).randn(1, Gen.z_dim)).to(device)
                 if idx < len_labels1:
                     real_img, real_label = ds1[idx]
-                    real_label = ds1.get_norm_label(idx)
+                    real_label_norm = ds1.get_norm_label(idx)
                 else:
                     real_img, real_label = ds2[idx-len_labels1]
-                    real_label = ds2.get_norm_label(idx-len_labels1)
-                l = torch.tensor(real_label).reshape(1, -1).to(device)
-                if which == 0:
-                    l[0, 1], l[0, 2] = l[0, 1] - 0.5, l[0, 2] - 0.5
-                elif which == 1:
-                    l[0, 1], l[0, 2] = l[0, 1] - 0.5, l[0, 2] + 0.5
-                elif which == 2:
-                    l[0, 1], l[0, 2] = l[0, 1] + 0.5, l[0, 2] - 0.5
-                elif which == 3:
-                    l[0, 1], l[0, 2] = l[0, 1] + 0.5, l[0, 2] + 0.5
+                    real_label_norm = ds2.get_norm_label(idx-len_labels1)
+                l = torch.tensor(real_label_norm).reshape(1, -1).to(device)
+                # if which == 0:
+                #     l[0, 1], l[0, 2] = l[0, 1] - 0.5, l[0, 2] - 0.5
+                # elif which == 1:
+                #     l[0, 1], l[0, 2] = l[0, 1] - 0.5, l[0, 2] + 0.5
+                # elif which == 2:
+                #     l[0, 1], l[0, 2] = l[0, 1] + 0.5, l[0, 2] - 0.5
+                # elif which == 3:
+                #     l[0, 1], l[0, 2] = l[0, 1] + 0.5, l[0, 2] + 0.5
                 img = generate_images(Gen, z, l, truncation_psi, noise_mode, translate, rotate)
                 real_img = torch.tensor(real_img.transpose(1, 2, 0)).unsqueeze(0)
                 real_images.append(real_img)
                 gen_images.append(img)
+                real_labels.append(real_label.reshape(1, -1))
             real_imgs = torch.cat(real_images, dim=0)
             imgs = torch.cat(gen_images, dim=0)
+            real_l_concat = np.concatenate(real_labels, axis=0)
             real_dict[str(num)] = real_imgs
             gen_dict[str(num)] = imgs
+            labels_dict[str(num)] = real_l_concat
             num += 1
             if group_by == "c1":
                 y_name = get_covs(dataset)["c2"]
@@ -219,13 +230,16 @@ def run_visualizer_neg_pos_covs(
                 x_name = get_covs(dataset)["c3"]
             elif group_by == "c3":
                 y_name = get_covs(dataset)["c1"]
-                y_name = get_covs(dataset)["c2"]
+                x_name = get_covs(dataset)["c2"]
         plot_negpos_images(real_images=real_dict,
-                            gen_images=gen_dict,
-                            dataset_name=dataset,
-                            c2_name=y_name, c3_name=x_name,
-                            save_path=f'{outdir}/seed{i}.png',
-                            single_source=False)
+                        gen_images=gen_dict,
+                        labels=labels_dict,
+                        dataset_name=dataset,
+                        c2_name=y_name,
+                        c3_name=x_name,
+                        save_path=f'{outdir}/seed{i}.png',
+                        single_source=False
+        )
 
 ## --- run ---
 if __name__ == "__main__":
