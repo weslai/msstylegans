@@ -22,6 +22,9 @@ def plot_pairplots(df, kind: str = "hist", diag_kind: str = "hist", save_path: s
         df: (pd.DataFrame) with columns names (add type as a column)
     """
     # grid = sns.PairGrid(data=df, hue="type")
+    sns.set_style("ticks")
+    sns.set_context("paper")
+    sns.set_palette("colorblind")
     grid = sns.pairplot(data=df, hue="type", kind=kind, diag_kind=diag_kind, size=2)
     grid.savefig(save_path)
     grid.savefig(save_path.replace(".png", ".pdf"))
@@ -31,6 +34,9 @@ def plot_jointkde(df, kind: str = "kde", save_path: str = None):
     """
         df: (pd.DataFrame) with columns names (add type as a column)
     """
+    sns.set_style("ticks")
+    sns.set_context("paper")
+    sns.set_palette("colorblind")
     grid = sns.jointplot(data=df, kind=kind, hue="type", x=df.columns[0], y=df.columns[1])
     grid.savefig(save_path)
     grid.savefig(save_path.replace(".png", ".pdf"))

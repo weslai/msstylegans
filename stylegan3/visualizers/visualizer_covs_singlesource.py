@@ -4,6 +4,7 @@ import os
 import re
 import numpy as np
 import torch
+import torch.nn.functional as F
 import click
 from typing import List, Tuple, Union
 
@@ -53,13 +54,30 @@ def make_transform(translate: Tuple[float,float], angle: float):
     m[1][1] = c
     m[1][2] = translate[1]
     return m
+#----------------------------------------------------------------------------
+def get_covs(dataset, source):
+    if dataset == "retinal":
+        if source == "source1":
+            COVS = {"c1": "age", "c2": "diastolic blood pressure"}
+        elif source == "source2":
+            COVS = {"c1": "age", "c2": "spherical power"}
+    elif dataset == "mri":
+        if source == "source1":
+            COVS = {"c1": "age", "c2": "ventricle"}
+        elif source == "source2":
+            COVS = {"c1": "age", "c2": "grey matter"}
+    if dataset == "morphomnist":
+        if source == "source1":
+            COVS = {"c1": "thickness", "c2": "intensity"}
+        elif source == "source2":
+            COVS = {"c1": "thickness", "c2": "slant"}
+    return COVS
 
 #----------------------------------------------------------------------------
 
 @click.command()
+@click.option('--network_pkl', 'network_pkl', help='Network pickle filename', default=None)
 @click.option('--network', 'metric_jsonl', help='Metric jsonl file for one training', required=True)
-# @click.option('--label-mode', 'label_mode', type=click.Choice(['test', 'sampling']), 
-#               default='test', show_default=True)
 @click.option('--dataset', 'dataset', type=click.Choice(['mnist-thickness-intensity', 'mnist-thickness-slant',
                                                          'mnist-thickness-intensity-slant',
                                                          'ukb', 'retinal', None]),
@@ -75,6 +93,7 @@ def make_transform(translate: Tuple[float,float], angle: float):
               show_default=True, metavar='ANGLE')
 @click.option('--outdir', help='Where to save the output images', type=str, required=True, metavar='DIR')
 def run_visualizer_two_covs_singlesource(
+    network_pkl: str,
     metric_jsonl: str,
     dataset: str,
     data_path: str,
@@ -91,17 +110,12 @@ def run_visualizer_two_covs_singlesource(
     # Generate an image using pre-trained AFHQv2 model ("Ours" in Figure 1, left).
     python gen_images.py --outdir=out --trunc=1 --seeds=2 \\
         --network=https://api.ngc.nvidia.com/v2/models/nvidia/research/stylegan3/versions/1/files/stylegan3-r-afhqv2-512x512.pkl
-
-    \b
-    # Generate uncurated images with truncation using the MetFaces-U dataset
-    python gen_images.py --outdir=out --trunc=0.7 --seeds=600-605 \\
-        --network=https://api.ngc.nvidia.com/v2/models/nvidia/research/stylegan3/versions/1/files/stylegan3-t-metfacesu-1024x1024.pkl
     """
     device = torch.device('cuda')
     num_labels = 5
     # Load the network.
     Gen = load_generator(
-        network_pkl=None,
+        network_pkl=network_pkl,
         metric_jsonl=metric_jsonl,
         use_cuda=True
     )
@@ -129,12 +143,41 @@ def run_visualizer_two_covs_singlesource(
                                         use_labels=True,
                                         xflip=False)
     which_source = ds.which_source
-    dataset = dataset + "_" + which_source
+    if dataset == "ukb":
+        dataset = "mri"
+    elif dataset == "mnist-thickness-intensity-slant":
+        dataset = "morphomnist"
+        c3_fix = F.one_hot(torch.tensor(np.array([3] * num_labels).reshape(-1, 1), dtype=torch.long),
+            num_classes=10).squeeze(1).to(device)
+    ## norm labels
     labels = ds._load_raw_labels() ## (c1, c2)
     labels_min, labels_max = labels.min(axis=0), labels.max(axis=0)
-    c1_range = np.linspace(labels_min[0]-2, labels_max[0]+2, num=num_labels).reshape(-1, 1)
-    c2_range = np.linspace(labels_min[1]-2, labels_max[1]+2, num=num_labels).reshape(-1, 1)
+    c1_range = np.linspace(labels_min[0], labels_max[0], num=num_labels).reshape(-1, 1)
+    c2_range = np.linspace(labels_min[1], labels_max[1], num=num_labels).reshape(-1, 1)
     c = torch.tensor(np.concatenate([c1_range, c2_range], axis=1)).to(device)
+    
+    ## labels
+    if dataset == "mri":
+        c1_orig = c1_range * (ds.model["age_max"] - ds.model["age_min"]) + ds.model["age_min"]
+        if which_source == "source1":
+            c2_orig = np.exp(c2_range * ds.model["ventricle_std"] + ds.model["ventricle_mu"])
+        elif which_source == "source2":
+            c2_orig = np.exp(c2_range * ds.model["grey_matter_std"] + ds.model["grey_matter_mu"])
+    elif dataset == "retinal":
+        c1_orig = c1_range * (ds.model["age_max"] - ds.model["age_min"]) + ds.model["age_min"]
+        if which_source == "source1":
+            c2_orig = np.exp(c2_range * ds.model["diastolic_bp_std"] + ds.model["diastolic_bp_mu"])
+        elif which_source == "source2":
+            c2_orig = np.exp(c2_range * ds.model["spherical_power_left_std"] + ds.model["spherical_power_left_mu"]) - 1e2
+    elif dataset == "morphomnist":
+        c1_orig = c1_range * ds.model["thickness_std"] + ds.model["thickness_mu"]
+        if which_source == "source1":
+            c2_orig = c2_range * ds.model["intensity_std"] + ds.model["intensity_mu"]
+        elif which_source == "source2":
+            c2_orig = c2_range * ds.model["slant_std"] + ds.model["slant_mu"]
+    
+    if dataset == "morphomnist":
+        c = torch.cat([c, c3_fix], dim=1)
     
     # Generate images.
     for seed_idx, seed in enumerate(seeds):
@@ -147,9 +190,12 @@ def run_visualizer_two_covs_singlesource(
                 img = generate_images(Gen, z, l, truncation_psi, noise_mode, translate, rotate)
                 gen_images.append(img)
         imgs = torch.cat(gen_images, dim=0)
-        plot_two_covs_images(imgs, c1_range, c2_range, dataset_name=dataset,
-                             save_path=f'{outdir}/seed{seed:04d}.png',
-                             single_source=True)
+        c1_name = get_covs(dataset, which_source)["c1"]
+        c2_name = get_covs(dataset, which_source)["c2"]
+        plot_two_covs_images(imgs, c1_orig, c2_orig, dataset_name=dataset,
+                            c2_name=c1_name, c3_name=c2_name,
+                            save_path=f'{outdir}/seed{seed:04d}.png'
+                            )
 
 ## --- run ---
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 from matplotlib import gridspec
+import seaborn as sns
 import numpy as np
 import pandas as pd
 import torch
@@ -42,24 +43,17 @@ def plot_two_covs_images(
     dataset_name: str,
     c2_name = None,
     c3_name = None,
-    save_path: str = None,
-    single_source: bool = True
+    save_path: str = None
 ):
-    if single_source:
-        if dataset_name in ["mnist-thickness-intensity", "mnist-thickness-slant", "mnist-thickness-intensity-slant"]:
-            c2_name = "thickness"
-            c3_name = "intensity" if dataset_name.split("_")[-1] == "source1" else "slant"
-        elif dataset_name.split("_")[0] == "ukb":
-            c2_name = "age"
-            c3_name = "brain" if dataset_name.split("_")[-1] == "source1" else "ventricles"
-        elif dataset_name.split("_")[0] == "retinal":
-            c2_name = "age"
-            c3_name = "systolic bp" if dataset_name.split("_")[-1] == "source1" else "cylindrical power"
-            dataset_name = "retinal"
     images = images.cpu().detach().numpy()
-    ncols = np.sqrt(images.shape[0]).astype(int)
-    nrows = ncols
-    fig = plt.figure(figsize=(ncols*2, nrows*2))
+    nrows = len(c2)
+    ncols = len(c3)
+    # ncols = np.sqrt(images.shape[0]).astype(int)
+    # nrows = ncols
+    sns.set_style("ticks")
+    sns.set_context("paper")
+    sns.set_palette("colorblind")
+    fig = plt.figure(figsize=(ncols*1.2, nrows*1.2))
     gs = gridspec.GridSpec(nrows, ncols,
         wspace=0.0, hspace=0.0
     )
@@ -87,6 +81,75 @@ def plot_two_covs_images(
         plt.savefig(save_path)
     plt.close()
 
+def plot_covs_images_threesources(
+    images: dict,
+    c2,
+    c3,
+    group_cov, 
+    dataset_name: str,
+    c2_name = None,
+    c3_name = None,
+    group_name = None,
+    save_path: str = None
+):
+    sns.set_style("ticks")
+    sns.set_context("paper")
+    sns.set_palette("colorblind")
+    # fig = plt.figure(figsize=(ncols*1.2, nrows*1.2))
+    if len(group_cov) == 4:
+        fig = plt.figure(figsize=(9, 12))
+    else:
+        fig = plt.figure(figsize=(14, 6))
+    nrows = len(c2)
+    ncols = len(c3)
+    for k, (key, imgs) in enumerate(images.items()):
+        imgs = imgs.cpu().detach().numpy()
+        gs = gridspec.GridSpec(nrows, ncols,
+            wspace=0.0, hspace=0.0
+        )
+        if len(group_cov) == 4:
+            if key == 0:
+                gs.update(left=0.05, right=0.50, bottom=0.50, top=0.90)
+            elif key == 1:
+                gs.update(left=0.52, right=0.98, bottom=0.50, top=0.90)
+            elif key == 2:
+                gs.update(left=0.05, right=0.50, bottom=0.05, top=0.45)
+            elif key == 3:
+                gs.update(left=0.52, right=0.98, bottom=0.05, top=0.45)
+        elif len(group_cov) == 3:
+            if key == 0:
+                gs.update(left=0.05, right=0.31, bottom=0.15, top=0.9)
+            elif key == 1:
+                gs.update(left=0.33, right=0.63, bottom=0.15, top=0.9)
+            elif key == 2:
+                gs.update(left=0.66, right=0.97, bottom=0.15, top=0.9)
+        for i in range(nrows):
+            for j in range(ncols):
+                ax = plt.subplot(gs[i, j])
+                if dataset_name == "retinal":
+                    img = imgs[i * ncols + j] ### (M, M, 3)
+                    ax.imshow(img, vmin=0, vmax=255)
+                else:
+                    img = imgs[i * ncols + j][:, :, 0]
+                    ax.imshow(img, cmap="gray", vmin=0, vmax=255)
+                if j == 0:
+                    ax.set_ylabel("{:.2f}".format(c2[i][0]), fontsize=8)
+                if i == nrows - 1:
+                    ax.set_xlabel("{:.2f}".format(c3[j][0]), fontsize=8)
+                ax.set_xticklabels([])
+                ax.set_yticklabels([])
+        ax_sub = fig.add_subplot(gs[:])
+        ax_sub.axis("off")
+        ax_sub.set_title(f"c4: {group_name} = {group_cov[k][0]:.2f}", fontsize=14)
+        fig.suptitle("Generated Images", fontsize=16)
+        fig.supxlabel(f"c3: {c3_name}", fontsize=14)
+        fig.supylabel(f"c2: {c2_name}", fontsize=14)
+    if save_path is not None:
+        plt.savefig(save_path)
+        save_path = save_path.replace(".png", ".pdf")
+        plt.savefig(save_path)
+    plt.close()
+
 def plot_negpos_images(
     real_images: dict,
     gen_images: dict,
@@ -107,6 +170,9 @@ def plot_negpos_images(
             c2_name = "age"
             c3_name = "diastolic bp" if dataset_name.split("_")[-1] == "source1" else "spherical power"
             dataset_name = "retinal"
+    sns.set_style("ticks")
+    sns.set_context("paper")
+    sns.set_palette("colorblind")
     fig = plt.figure(figsize=(24, 8))
     for i in range(4):
         reimgs = real_images[str(i)].cpu().detach().numpy()

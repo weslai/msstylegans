@@ -4,11 +4,12 @@ import os
 import re
 import numpy as np
 import torch
+import torch.nn.functional as F
 import click
 from typing import List, Tuple, Union
 
 from utils import load_generator, generate_images
-from training.dataset import UKBiobankMRIDataset2D, MorphoMNISTDataset_causal, UKBiobankRetinalDataset
+from evaluations.eval_dataset import UKBiobankMRIDataset2D, MorphoMNISTDataset_causal, UKBiobankRetinalDataset2D
 from visualizers.visual_two_covs import plot_two_covs_images
 
 # --------------------------------------------------------------------------------------
@@ -57,11 +58,11 @@ def make_transform(translate: Tuple[float,float], angle: float):
 #----------------------------------------------------------------------------
 def get_covs(dataset):
     if dataset == "retinal":
-        COVS = {"c1": "age", "c2": "diastolic bp", "c3": "spherical power left"}
+        COVS = {"c1": "age", "c2": "diastolic blood pressure", "c3": "spherical power"}
     elif dataset == "ukb":
-        pass
+        COVS = {"c1": "age", "c2": "ventricle", "c3": "grey matter"}
     elif dataset == "mnist-thickness-intensity-slant":
-        COVS = {"c1": "thickness", "c2": "intensity", "c3": "slant"}
+        COVS = {"c1": "thickness", "c2": "intensity", "c3": "slant (degrees)"}
     return COVS
 #----------------------------------------------------------------------------
 
@@ -74,7 +75,7 @@ def get_covs(dataset):
 @click.option('--data-path1', 'data_path1', type=str, help='Path to the data source 1', required=True)
 @click.option('--data-path2', 'data_path2', type=str, help='Path to the data source 2', required=True)
 @click.option('--seeds', type=parse_range, help='List of random seeds (e.g., \'0,1,4-6\')', required=True)
-@click.option('--trunc', 'truncation_psi', type=float, help='Truncation psi', default=0.8, show_default=True)
+@click.option('--trunc', 'truncation_psi', type=float, help='Truncation psi', default=0.9, show_default=True)
 @click.option('--noise-mode', 'noise_mode', help='Noise mode', type=click.Choice(['const', 'random', 'none']), 
               default='const', show_default=True)
 @click.option('--translate', help='Translate XY-coordinate (e.g. \'0.3,1\')', type=parse_vec2, 
@@ -109,7 +110,7 @@ def run_visualizer_two_covs(
         --network=https://api.ngc.nvidia.com/v2/models/nvidia/research/stylegan3/versions/1/files/stylegan3-t-metfacesu-1024x1024.pkl
     """
     device = torch.device('cuda')
-    num_labels = 3
+    num_labels = 7
     # Load the network.
     Gen = load_generator(
         network_pkl=network_pkl,
@@ -132,67 +133,87 @@ def run_visualizer_two_covs(
                                     use_labels=True,
                                     xflip=False)
     elif dataset == "retinal":
-        ds1 = UKBiobankRetinalDataset(data_name=dataset,
+        ds1 = UKBiobankRetinalDataset2D(data_name=dataset,
                                       path=data_path1,
                                       mode="test",
                                       use_labels=True,
                                       xflip=False)
-        ds2 = UKBiobankRetinalDataset(data_name=dataset,
+        ds2 = UKBiobankRetinalDataset2D(data_name=dataset,
                                       path=data_path2,
                                       mode="test",
                                       use_labels=True,
                                       xflip=False)
-
     elif dataset == "mnist-thickness-intensity-slant":
-        dataset2 = "mnist-thickness-intensity-slant"
-        ## seed is as the common convariate (c1)
         ds1 = MorphoMNISTDataset_causal(data_name=dataset,
                                         path=data_path1,
                                         mode="test",
                                         use_labels=True,
                                         xflip=False)
-        ds2 = MorphoMNISTDataset_causal(data_name=dataset2,
+        ds2 = MorphoMNISTDataset_causal(data_name=dataset,
                                         path=data_path2,
                                         mode="test",
                                         use_labels=True,
                                         xflip=False)
-    labels1 = ds1._load_raw_labels() ## (c1, c2)
+    ## raw labels
+    labels1 = ds1._load_raw_labels() ## (c1, c2, c3) ## source1
     labels1_min, labels1_max = labels1.min(axis=0), labels1.max(axis=0)
-    labels2 = ds2._load_raw_labels() ## (c1, c3)
+    labels2 = ds2._load_raw_labels() ## (c1, c2, c3) ## source2
     labels2_min, labels2_max = labels2.min(axis=0), labels2.max(axis=0)
     c1_min, c1_max = min(labels1_min[0], labels2_min[0]), max(labels1_max[0], labels2_max[0]) ## c1 fixed
+    c2_min, c2_max = min(labels1_min[1], labels2_min[1]), max(labels1_max[1], labels2_max[1]) ## c2
+    c3_min, c3_max = min(labels1_min[2], labels2_min[2]), max(labels1_max[2], labels2_max[2]) ## c3
     if group_by == "c1":
-        c1 = np.mean([c1_min, c1_max])
+        c1 = np.mean([c1_min, c1_max]) ## c1 fixed
         c1_range = np.array([c1] * num_labels).reshape(-1, 1)
-        c2_range = np.linspace(labels1_min[1]-3, labels1_max[1]+3, num=num_labels).reshape(-1, 1)
-        c3_range = np.linspace(labels2_min[1]-3, labels2_max[1]+3, num=num_labels).reshape(-1, 1)
+        c2_range = np.linspace(c2_min, c2_max, num=num_labels).reshape(-1, 1)
+        c3_range = np.linspace(c3_min, c3_max, num=num_labels).reshape(-1, 1)
     elif group_by == "c2":
-        c2_min, c2_max = labels1_min[1], labels1_max[1]
-        c2 = np.mean([c2_min, c2_max]) + 0.5
-        c1_range = np.linspace(c1_min-2, c1_max+2, num=num_labels).reshape(-1, 1)
+        c2 = np.mean([c2_min, c2_max]) ## c2 fixed
+        c1_range = np.linspace(c1_min, c1_max, num=num_labels).reshape(-1, 1)
         c2_range = np.array([c2] * num_labels).reshape(-1, 1)
-        c3_range = np.linspace(labels2_min[1]-2, labels2_max[1]+2, num=num_labels).reshape(-1, 1)
+        c3_range = np.linspace(c3_min, c3_max, num=num_labels).reshape(-1, 1)
     elif group_by == "c3":
-        c3_min, c3_max = labels2_min[1], labels2_max[1]
-        c3 = np.mean([c3_min, c3_max])
-        c1_range = np.linspace(c1_min-2, c1_max+2, num=num_labels).reshape(-1, 1)
-        c2_range = np.linspace(labels1_min[1]-2, labels1_max[1]+2, num=num_labels).reshape(-1, 1)
+        c3 = np.mean([c3_min, c3_max]) ## c3 fixed
+        c1_range = np.linspace(c1_min, c1_max, num=num_labels).reshape(-1, 1)
+        c2_range = np.linspace(c2_min, c2_max, num=num_labels).reshape(-1, 1)
         c3_range = np.array([c3] * num_labels).reshape(-1, 1)
-    c = torch.tensor(np.concatenate([c1_range, c2_range, c3_range], axis=1)).to(device)
+    # c = torch.tensor(np.concatenate([c1_range, c2_range, c3_range], axis=1)).to(device)
+
+    ## normalize labels
+    if dataset == "ukb":
+        c1_norm = (c1_range - ds1.model["age_min"]) / (ds1.model["age_max"] - ds1.model["age_min"])
+        c2_norm = (np.log(c2_range) - ds1.model["ventricle_mu"]) / ds1.model["ventricle_std"]
+        c3_norm = (np.log(c3_range) - ds1.model["grey_matter_mu"]) / ds1.model["grey_matter_std"]
+    elif dataset == "retinal":
+        c1_norm = (c1_range - ds1.model["age_min"]) / (ds1.model["age_max"] - ds1.model["age_min"])
+        c2_norm = (np.log(c2_range) - ds1.model["diastolic_bp_mu"]) / ds1.model["diastolic_bp_std"]
+        c3_norm = (np.log(c3_range + 1e2) - ds1.model["spherical_power_left_mu"]) / ds1.model["spherical_power_left_std"]
+    elif dataset == "mnist-thickness-intensity-slant":
+        c1_norm = (c1_range - ds1.model["thickness_mu"]) / ds1.model["thickness_std"]
+        c2_norm = (c2_range - ds1.model["intensity_mu"]) / ds1.model["intensity_std"]
+        c3_norm = (c3_range - ds1.model["slant_mu"]) / ds1.model["slant_std"]
+        ## classes
+        c4_norm = F.one_hot(torch.tensor(np.array([3] * num_labels).reshape(-1, 1), dtype=torch.long),
+            num_classes=10).squeeze(1).to(device)
+    c_norm = torch.tensor(np.concatenate([c1_norm, c2_norm, c3_norm], axis=1)).to(device)
+    if dataset == "mnist-thickness-intensity-slant":
+        c_norm = torch.cat([c_norm, c4_norm], dim=1)
     
     # Generate images.
     for seed_idx, seed in enumerate(seeds):
         gen_images = []
         print('Generating image for seed %d (%d/%d) ...' % (seed, seed_idx, len(seeds)))
         z = torch.from_numpy(np.random.RandomState(seed).randn(1, Gen.z_dim)).to(device)
-        for x in range(c.shape[0]):
-            for y in range(c.shape[0]):
+        for x in range(c_norm.shape[0]):
+            for y in range(c_norm.shape[0]):
                 if group_by == "c1":
-                    l = torch.tensor((c1_range[0], c2_range[x], c3_range[y])).reshape(1, -1).to(device)
+                    l = torch.tensor((c1_norm[0], c2_norm[x], c3_norm[y])).reshape(1, -1).to(device)
                 elif group_by == "c2":
-                    l = torch.tensor((c1_range[x], c2_range[0], c3_range[y])).reshape(1, -1).to(device)
+                    l = torch.tensor((c1_norm[x], c2_norm[0], c3_norm[y])).reshape(1, -1).to(device)
                 elif group_by == "c3":
-                    l = torch.tensor((c1_range[x], c2_range[y], c3_range[0])).reshape(1, -1).to(device)
+                    l = torch.tensor((c1_norm[x], c2_norm[y], c3_norm[0])).reshape(1, -1).to(device)
+                if dataset == "mnist-thickness-intensity-slant":
+                    l = torch.cat([l, c4_norm[x, :].reshape(1, -1)], dim=1)
                 img = generate_images(Gen, z, l, truncation_psi, noise_mode, translate, rotate)
                 gen_images.append(img)
         imgs = torch.cat(gen_images, dim=0)
@@ -201,20 +222,23 @@ def run_visualizer_two_covs(
             y_name = get_covs(dataset)["c2"]
             x_range = c3_range
             x_name = get_covs(dataset)["c3"]
+            c_fix = int(c1_range[0])
         elif group_by == "c2":
             y_range = c1_range
             y_name = get_covs(dataset)["c1"]
             x_range = c3_range
             x_name = get_covs(dataset)["c3"]
+            c_fix = int(c2_range[0])
         elif group_by == "c3":
             y_range = c1_range
             y_name = get_covs(dataset)["c1"]
             x_range = c2_range
             x_name = get_covs(dataset)["c2"]
+            c_fix = int(c3_range[0])
         plot_two_covs_images(imgs, y_range, x_range, dataset_name=dataset,
                              c2_name=y_name, c3_name=x_name,
-                            save_path=f'{outdir}/seed{seed:04d}.png',
-                            single_source=False)
+                            save_path=f'{outdir}/{group_by}_{c_fix:05d}_seed{seed:04d}.png'
+                            )
 
 ## --- run ---
 if __name__ == "__main__":
