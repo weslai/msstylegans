@@ -14,7 +14,6 @@ from eval_dataset import ConcatDataset
 from eval_dataset import MorphoMNISTDataset_causal, MorphoMNISTDataset_causal_single
 from eval_dataset import UKBiobankMRIDataset2D, UKBiobankMRIDataset2D_single
 from eval_dataset import UKBiobankRetinalDataset2D, UKBiobankRetinalDataset2D_single
-from latent_dist_morphomnist import MorphoSampler
 
 # --------------------------------------------------------------------------------------
 def parse_vec2(s: Union[str, Tuple[float, float]]) -> Tuple[float, float]:
@@ -78,70 +77,74 @@ def run_general_fid(
         "source_gan": source_gan, "num_samples": num_samples, "out_dir": outdir}
     with open(os.path.join(outdir, "generalfid_config.json"), "w") as f:
         json.dump(config_dict, f)
-    if dataset in ["mnist-thickness-intensity", "mnist-thickness-slant", "mnist-thickness-intensity-slant"]:
+    if dataset == "mnist-thickness-intensity-slant":
         if data_path2 is not None and source_gan == "multi":
-            # dataset2 = "mnist-thickness-slant" if dataset == "mnist-thickness-intensity" else "mnist-thickness-intensity"
-            dataset2 = "mnist-thickness-intensity-slant" if dataset == "mnist-thickness-intensity-slant" else "mnist-thickness-intensity"
+            dataset2 = "mnist-thickness-intensity-slant"
             ## seed is as the common convariate (c1)
             ds1 = MorphoMNISTDataset_causal(data_name=dataset,
                                             path=data_path1,
-                                            mode="test",
+                                            mode="train",
                                             use_labels=True,
-                                            xflip=False)
+                                            xflip=False,
+                                            include_numbers=True)
             ds2 = MorphoMNISTDataset_causal(data_name=dataset2,
                                             path=data_path2,
-                                            mode="test",
+                                            mode="train",
                                             use_labels=True,
-                                            xflip=False)
+                                            xflip=False,
+                                            include_numbers=True)
             concat_ds = ConcatDataset(ds1, ds2)
             labels = ds1._load_raw_labels()
             labels2 = ds2._load_raw_labels()
         elif data_path2 is not None and source_gan == "single":
             # dataset2 = "mnist-thickness-slant" if dataset == "mnist-thickness-intensity" else "mnist-thickness-intensity"
-            dataset2 = "mnist-thickness-intensity-slant" if dataset == "mnist-thickness-intensity-slant" else "mnist-thickness-intensity"
+            dataset2 = "mnist-thickness-intensity-slant"
             ## seed is as the common convariate (c1)
             ds1 = MorphoMNISTDataset_causal_single(data_name=dataset,
                                             path=data_path1,
-                                            mode="test",
+                                            mode="train",
                                             use_labels=True,
-                                            xflip=False)
+                                            xflip=False,
+                                            include_numbers=True)
             ds2 = MorphoMNISTDataset_causal_single(data_name=dataset2,
                                             path=data_path2,
-                                            mode="test",
+                                            mode="train",
                                             use_labels=True,
-                                            xflip=False)
+                                            xflip=False,
+                                            include_numbers=True)
             concat_ds = ConcatDataset(ds1, ds2)
             labels = ds1._load_raw_labels()
             labels2 = ds2._load_raw_labels()
         else:
             ds1 = MorphoMNISTDataset_causal_single(data_name=dataset,
                                             path=data_path1,
-                                            mode="test",
+                                            mode="train",
                                             use_labels=True,
-                                            xflip=False)
+                                            xflip=False,
+                                            include_numbers=True)
             labels = ds1._load_raw_labels()
     elif dataset == "ukb":
         if data_path2 is not None and source_gan == "multi":
             ds1 = UKBiobankMRIDataset2D(data_name=dataset, 
                                         path=data_path1, 
-                                        mode="test", 
+                                        mode="train", 
                                         use_labels=True,
                                         xflip=False)
             ds2 = UKBiobankMRIDataset2D(data_name=dataset, 
                                         path=data_path2, 
-                                        mode="test", 
+                                        mode="train", 
                                         use_labels=True,
                                         xflip=False)
             concat_ds = ConcatDataset(ds1, ds2)
         elif data_path2 is not None and source_gan == "single":
             ds1 = UKBiobankMRIDataset2D_single(data_name=dataset,
                                         path=data_path1, 
-                                        mode="test", 
+                                        mode="train", 
                                         use_labels=True,
                                         xflip=False)
             ds2 = UKBiobankMRIDataset2D_single(data_name=dataset, 
                                         path=data_path2, 
-                                        mode="test", 
+                                        mode="train", 
                                         use_labels=True,
                                         xflip=False)
             concat_ds = ConcatDataset(ds1, ds2)
@@ -150,7 +153,7 @@ def run_general_fid(
         else:
             ds1 = UKBiobankMRIDataset2D_single(data_name=dataset,
                                                 path=data_path1, 
-                                                mode="test", 
+                                                mode="train", 
                                                 use_labels=True,
                                                 xflip=False)
             labels = ds1._load_raw_labels()
@@ -158,24 +161,24 @@ def run_general_fid(
         if data_path2 is not None and source_gan == "multi":
             ds1 = UKBiobankRetinalDataset2D(data_name=dataset,
                                         path=data_path1,
-                                        mode="test",
+                                        mode="train",
                                         use_labels=True,
                                         xflip=False)
             ds2 = UKBiobankRetinalDataset2D(data_name=dataset,
                                         path=data_path2,
-                                        mode="test",
+                                        mode="train",
                                         use_labels=True,
                                         xflip=False)
             concat_ds = ConcatDataset(ds1, ds2)
         elif data_path2 is not None and source_gan == "single":
             ds1 = UKBiobankRetinalDataset2D_single(data_name=dataset,
                                             path=data_path1,
-                                            mode="test",
+                                            mode="train",
                                             use_labels=True,
                                             xflip=False)
             ds2 = UKBiobankRetinalDataset2D_single(data_name=dataset,
                                             path=data_path2,
-                                            mode="test",
+                                            mode="train",
                                             use_labels=True,
                                             xflip=False)
             concat_ds = ConcatDataset(ds1, ds2)
@@ -184,7 +187,7 @@ def run_general_fid(
         else:
             ds1 = UKBiobankRetinalDataset2D_single(data_name=dataset,
                                         path=data_path1, 
-                                        mode="test", 
+                                        mode="train", 
                                         use_labels=True,
                                         xflip=False)
             labels = ds1._load_raw_labels()
@@ -225,6 +228,9 @@ def run_general_fid(
                                                         label1[2].reshape(-1, 1))
                     label2_norm = ds2._normalise_labels(label2[0].reshape(-1, 1), label2[1].reshape(-1, 1),
                                                         label2[2].reshape(-1, 1))
+                    if dataset == "mnist-thickness-intensity-slant":
+                        label1_norm = np.concatenate([label1_norm, label1[3:].reshape(1, -1)], axis=-1)
+                        label2_norm = np.concatenate([label2_norm, label2[3:].reshape(1, -1)], axis=-1)
                     label1_norm = torch.from_numpy(label1_norm).to(device)
                     label2_norm = torch.from_numpy(label2_norm).to(device)
                     l = torch.cat([label1_norm, label2_norm], dim=0)

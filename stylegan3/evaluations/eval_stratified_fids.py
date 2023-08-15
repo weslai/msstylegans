@@ -78,60 +78,66 @@ def run_stratified_fid(
     if dataset == "ukb":
         ds1 = UKBiobankMRIDataset2D(data_name=dataset, 
                                     path=data_path1, 
-                                    mode="test", 
+                                    mode="train", 
                                     use_labels=True,
                                     xflip=False)
         ds2 = UKBiobankMRIDataset2D(data_name=dataset, 
                                     path=data_path2, 
-                                    mode="test", 
+                                    mode="train", 
                                     use_labels=True,
                                     xflip=False)
         ds_gen = UKBiobankMRIDataset2D_single(data_name=dataset,
                                     path=data_path1,
-                                    mode="test", 
+                                    mode="train", 
                                     use_labels=True,
                                     xflip=False)
     elif dataset == "retinal":
         ds1 = UKBiobankRetinalDataset2D(data_name=dataset, 
                                     path=data_path1, 
-                                    mode="test", 
+                                    mode="train", 
                                     use_labels=True,
                                     xflip=False)
         ds2 = UKBiobankRetinalDataset2D(data_name=dataset, 
                                     path=data_path2, 
-                                    mode="test", 
+                                    mode="train", 
                                     use_labels=True,
                                     xflip=False)
         ds_gen = UKBiobankRetinalDataset2D_single(data_name=dataset,
                                     path=data_path1,
-                                    mode="test", 
+                                    mode="train", 
                                     use_labels=True,
                                     xflip=False)
     elif dataset == "mnist-thickness-intensity-slant":
         ds1 = MorphoMNISTDataset_causal(data_name=dataset, 
                                     path=data_path1, 
-                                    mode="test", 
+                                    mode="train", 
                                     use_labels=True,
-                                    xflip=False)
+                                    xflip=False,
+                                    include_numbers=True)
         ds2 = MorphoMNISTDataset_causal(data_name=dataset, 
                                     path=data_path2, 
-                                    mode="test", 
+                                    mode="train", 
                                     use_labels=True,
-                                    xflip=False)
+                                    xflip=False,
+                                    include_numbers=True)
         ds_gen = MorphoMNISTDataset_causal_single(data_name=dataset,
                                     path=data_path1,
-                                    mode="test", 
+                                    mode="train", 
                                     use_labels=True,
-                                    xflip=False)
+                                    xflip=False,
+                                    include_numbers=True)
     labels1 = ds1._load_raw_labels() ## (c1, c2, c3) ## ground truth, c1 fixed
     labels2 = ds2._load_raw_labels() ## (c1, c2, c3) ## ground truth, c1 fixed
     label_gen = ds_gen._load_raw_labels() ## (c1, c2) ## only c1 and c2
 
     labels_all = np.concatenate([labels1, labels2], axis=0) ## (c1, c2, c3)
     c1_all, c2_all, c3_all = labels_all[:,0], labels_all[:,1], labels_all[:,2]
-    c1_hist = np.histogram(c1_all, bins=num_bins)
-    c2_hist = np.histogram(c2_all, bins=num_bins)
-    c3_hist = np.histogram(c3_all, bins=num_bins)
+    c1_min, c1_max = np.min(c1_all), np.max(c1_all)
+    c2_min, c2_max = np.min(c2_all), np.max(c2_all)
+    c3_min, c3_max = np.min(c3_all), np.max(c3_all)
+    c1_hist = [np.quantile(c1_all, 1/num_bins), np.quantile(c1_all, 2/num_bins)]
+    c2_hist = [np.quantile(c2_all, 1/num_bins), np.quantile(c2_all, 2/num_bins)]
+    c3_hist = [np.quantile(c3_all, 1/num_bins), np.quantile(c3_all, 2/num_bins)]
     strata_hist = {"c1": c1_hist, "c2": c2_hist, "c3": c3_hist} ## define strata
 
     strata_distance = 1 ## distance between strata
@@ -147,11 +153,26 @@ def run_stratified_fid(
     ### within strata (c1, c2, c3), calculate FID
     scores = []
     for stra_c1 in strata_idxs:
-        cur_c1 = (strata_hist["c1"][1][stra_c1], strata_hist["c1"][1][stra_c1+1])
+        if stra_c1 == 0:
+            cur_c1 = (c1_min, strata_hist["c1"][stra_c1])
+        elif stra_c1 == 1:
+            cur_c1 = (strata_hist["c1"][stra_c1-1], strata_hist["c1"][stra_c1])
+        else:
+            cur_c1 = (strata_hist["c1"][stra_c1-1], c1_max)
         for stra_c2 in strata_idxs:
-            cur_c2 = (strata_hist["c2"][1][stra_c2], strata_hist["c2"][1][stra_c2+1])
+            if stra_c2 == 0:
+                cur_c2 = (c2_min, strata_hist["c2"][stra_c2])
+            elif stra_c2 == 1:
+                cur_c2 = (strata_hist["c2"][stra_c2-1], strata_hist["c2"][stra_c2])
+            else:
+                cur_c2 = (strata_hist["c2"][stra_c2-1], c2_max)
             for stra_c3 in strata_idxs:
-                cur_c3 = (strata_hist["c3"][1][stra_c3], strata_hist["c3"][1][stra_c3+1])
+                if stra_c3 == 0:
+                    cur_c3 = (c3_min, strata_hist["c3"][stra_c3+1])
+                elif stra_c3 == 1:
+                    cur_c3 = (strata_hist["c3"][stra_c3-1], strata_hist["c3"][stra_c3])
+                else:
+                    cur_c3 = (strata_hist["c3"][stra_c3-1], c3_max)
                 real_imgs = []
                 gen_imgs = []
                 ## get samples from datasets
