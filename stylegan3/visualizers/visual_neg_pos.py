@@ -58,7 +58,7 @@ def make_transform(translate: Tuple[float,float], angle: float):
 #----------------------------------------------------------------------------
 def get_covs(dataset):
     if dataset == "retinal":
-        COVS = {"c1": "age", "c2": "diastolic bp", "c3": "spherical power"}
+        COVS = {"c1": "age", "c2": "diastolic blood pressure", "c3": "spherical power"}
     elif dataset == "ukb":
         COVS = {"c1": "age", "c2": "ventricle", "c3": "grey matter"}
     elif dataset == "mnist-thickness-intensity-slant":
@@ -70,7 +70,7 @@ def get_covs(dataset):
 @click.option('--network_pkl', 'network_pkl', help='Network pickle filename', default=None)
 @click.option('--network', 'metric_jsonl', help='Metric jsonl file for one training', required=True)
 @click.option('--group-by', 'group_by', type=str, default="c1", show_default=True)
-@click.option('--quantile', 'quantile', type=float, default=0.95, show_default=True)
+@click.option('--quantile', 'quantile', type=float, default=0.90, show_default=True)
 @click.option('--dataset', 'dataset', type=click.Choice(['mnist-thickness-intensity-slant', 'ukb', 
                                                          'retinal', None]),
               default=None, show_default=True)

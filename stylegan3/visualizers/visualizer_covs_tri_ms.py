@@ -92,14 +92,14 @@ def get_covs(dataset):
                                                 default="2,4", show_default=True)
 @click.option('--group-by', 'group_by', type=str, help='Group by a conditional variables')
 @click.option('--num_subplots', 'num_subplots', type=int, help='Number of subplots', default=4, show_default=True)
-@click.option('--source', 'source', type=click.Choice(["0", "1"]))
+@click.option('--source', 'source', type=click.Choice(["0", "1", "2"]))
 @click.option('--dataset', 'dataset', type=click.Choice(['mri', 'retinal', None]), 
                                                 default=None, show_default=True)
 @click.option('--data-path1', 'data_path1', type=str, help='Path to the data source 1', required=True)
 @click.option('--data-path2', 'data_path2', type=str, help='Path to the data source 2', required=True)
 @click.option('--data-path3', 'data_path3', type=str, help='Path to the data source 3', required=True)
 @click.option('--seeds', type=parse_range, help='List of random seeds (e.g., \'0,1,4-6\')', required=True)
-@click.option('--trunc', 'truncation_psi', type=float, help='Truncation psi', default=0.9, show_default=True)
+@click.option('--trunc', 'truncation_psi', type=float, help='Truncation psi', default=1, show_default=True)
 @click.option('--noise-mode', 'noise_mode', help='Noise mode', type=click.Choice(['const', 'random', 'none']), 
               default='const', show_default=True)
 @click.option('--translate', help='Translate XY-coordinate (e.g. \'0.3,1\')', type=parse_vec2, 
@@ -187,7 +187,7 @@ def run_visualizer_two_covs(
     all_vars.remove(group_by)
 
     device = torch.device('cuda')
-    num_labels = 5
+    num_labels = 3
     nrows = num_labels
     # Load the network.
     Gen = load_generator(
@@ -231,11 +231,11 @@ def run_visualizer_two_covs(
                             xflip=False)
     ## norm labels
     labels1 = ds1._load_raw_labels() ## (c1, c2, c3)
-    labels1_min, labels1_max = labels1.min(axis=0), labels1.max(axis=0)
+    labels1_min, labels1_max = np.quantile(labels1, 0.1, axis=0), np.quantile(labels1, 0.9, axis=0)
     labels2 = ds2._load_raw_labels() ## (c1, c4 (cdr))
-    labels2_min, labels2_max = labels2.min(axis=0), labels2.max(axis=0)
+    labels2_min, labels2_max = np.quantile(labels2, 0.1, axis=0), np.quantile(labels2, 0.9, axis=0)
     labels3 = ds3._load_raw_labels() ## (c1, c5 (apoe), c4 (cdr))
-    labels3_min, labels3_max = labels3.min(axis=0), labels3.max(axis=0)
+    labels3_min, labels3_max = np.quantile(labels3, 0.1, axis=0), np.quantile(labels3, 0.9, axis=0)
     
     ## add group_by into variables
     variables.append(group_by) ## last variable is group_by

@@ -6,10 +6,11 @@ import numpy as np
 import torch
 import click
 from typing import List, Tuple, Union
+import torch.nn.functional as F
 
 from utils import load_generator, generate_images
 from training.dataset_real_ms import UKBiobankMRIDataset2D, UKBiobankRetinalDataset, AdniMRIDataset2D, KaggleEyepacsDataset
-from visualizers.visual_two_covs import plot_two_covs_images
+from visualizers.visual_two_covs import plot_two_covs_images_dualsources
 
 # --------------------------------------------------------------------------------------
 def parse_range(s: Union[str, List]) -> List[int]:
@@ -92,7 +93,7 @@ def get_covs(dataset):
 @click.option('--data-path1', 'data_path1', type=str, help='Path to the data source 1', required=True)
 @click.option('--data-path2', 'data_path2', type=str, help='Path to the data source 2', required=True)
 @click.option('--seeds', type=parse_range, help='List of random seeds (e.g., \'0,1,4-6\')', required=True)
-@click.option('--trunc', 'truncation_psi', type=float, help='Truncation psi', default=0.9, show_default=True)
+@click.option('--trunc', 'truncation_psi', type=float, help='Truncation psi', default=1, show_default=True)
 @click.option('--noise-mode', 'noise_mode', help='Noise mode', type=click.Choice(['const', 'random', 'none']), 
               default='const', show_default=True)
 @click.option('--translate', help='Translate XY-coordinate (e.g. \'0.3,1\')', type=parse_vec2, 
@@ -159,7 +160,7 @@ def run_visualizer_two_covs(
                 all_vars.remove(variable)
 
     device = torch.device('cuda')
-    num_labels = 7
+    num_labels = 4
     # Load the network.
     Gen = load_generator(
         network_pkl=network_pkl,
@@ -192,9 +193,9 @@ def run_visualizer_two_covs(
                                     xflip=False)
     ## norm labels
     labels1 = ds1._load_raw_labels() ## (c1, c2, c3)
-    labels1_min, labels1_max = labels1.min(axis=0), labels1.max(axis=0)
+    labels1_min, labels1_max = np.quantile(labels1, 0.1, axis=0), np.quantile(labels1, 0.9, axis=0)
     labels2 = ds2._load_raw_labels() ## (c1, c4 (cdr))
-    labels2_min, labels2_max = labels2.min(axis=0), labels2.max(axis=0)
+    labels2_min, labels2_max = np.quantile(labels2, 0.1, axis=0), np.quantile(labels2, 0.9, axis=0)
     
     c_vars = {}
     c_vars_orig = {}
@@ -222,7 +223,8 @@ def run_visualizer_two_covs(
                 v_orig = np.exp(v * ds1.model["spherical_power_left_std"] + ds1.model["spherical_power_left_mu"]) - 1e2
         elif variable == "c4":
             if dataset == "retinal":
-                v = np.array([0, 1, 2, 3, 4]).reshape(-1, 1)
+                # v = np.array([0, 1, 2, 3, 4]).reshape(-1, 1)
+                v = np.array([1, 2, 3, 4]).reshape(-1, 1)
                 v_orig = v
             elif dataset == "mri":
                 v = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
@@ -255,7 +257,8 @@ def run_visualizer_two_covs(
                 c_mean_orig = np.exp(c_mean * ds1.model["spherical_power_left_std"] + ds1.model["spherical_power_left_mu"]) - 1e2
         elif remain_var == "c4": ## cdr or diabetic retinopathy
             if dataset == "retinal":
-                c_mean = np.random.choice([0, 1, 2, 3, 4])
+                # c_mean = np.random.choice([0, 1, 2, 3, 4])
+                c_mean = np.random.choice([1, 2, 3, 4])
                 c_mean_orig = c_mean
             elif dataset == "mri":
                 c_mean = np.random.choice([0, 1, 2])
@@ -269,7 +272,7 @@ def run_visualizer_two_covs(
         if dataset == "mri":
             ncols = 3
         elif dataset == "retinal":
-            ncols = 5
+            ncols = 4
     else:
         ncols = num_labels
     # Generate images.
@@ -307,13 +310,17 @@ def run_visualizer_two_covs(
                 cond_l = np.concatenate([c_order[key].reshape(1, -1) for key in sorted(c_order.keys())], axis=1)
                 l = torch.tensor(cond_l).reshape(1, -1).to(device)
                 img = generate_images(Gen, z, l, truncation_psi, noise_mode, translate, rotate)
+                # if dataset == "retinal":
+                #     img = img.permute(0, 3, 1, 2)
+                #     img = img.resize((128, 192))
+                #     img = img.permute(0, 2, 3, 1)
                 gen_images.append(img)
         imgs = torch.cat(gen_images, dim=0)
         
         y_range, x_range = c_vars_orig[variables[0]], c_vars_orig[variables[1]]
         y_name, x_name = get_covs(dataset)[variables[0]], get_covs(dataset)[variables[1]]
         fix_name = f"s{source}_{all_vars[0]}={c_fix_orig[all_vars[0]]:.2f}_{all_vars[1]}={c_fix_orig[all_vars[1]]:.2f}"
-        plot_two_covs_images(imgs, y_range, x_range, dataset_name=dataset,
+        plot_two_covs_images_dualsources(imgs, y_range, x_range, dataset_name=dataset,
                              c2_name=y_name, c3_name=x_name,
                              save_path=f'{outdir}/{fix_name}_seed{seed:04d}.png',
                              )

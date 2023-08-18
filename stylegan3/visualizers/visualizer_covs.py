@@ -75,7 +75,7 @@ def get_covs(dataset):
 @click.option('--data-path1', 'data_path1', type=str, help='Path to the data source 1', required=True)
 @click.option('--data-path2', 'data_path2', type=str, help='Path to the data source 2', required=True)
 @click.option('--seeds', type=parse_range, help='List of random seeds (e.g., \'0,1,4-6\')', required=True)
-@click.option('--trunc', 'truncation_psi', type=float, help='Truncation psi', default=0.9, show_default=True)
+@click.option('--trunc', 'truncation_psi', type=float, help='Truncation psi', default=1, show_default=True)
 @click.option('--noise-mode', 'noise_mode', help='Noise mode', type=click.Choice(['const', 'random', 'none']), 
               default='const', show_default=True)
 @click.option('--translate', help='Translate XY-coordinate (e.g. \'0.3,1\')', type=parse_vec2, 
@@ -110,7 +110,7 @@ def run_visualizer_two_covs(
         --network=https://api.ngc.nvidia.com/v2/models/nvidia/research/stylegan3/versions/1/files/stylegan3-t-metfacesu-1024x1024.pkl
     """
     device = torch.device('cuda')
-    num_labels = 7
+    num_labels = 4
     # Load the network.
     Gen = load_generator(
         network_pkl=network_pkl,
@@ -124,7 +124,7 @@ def run_visualizer_two_covs(
     if dataset == "ukb":
         ds1 = UKBiobankMRIDataset2D(data_name=dataset, 
                                     path=data_path1, 
-                                    mode="test", 
+                                    mode="test",
                                     use_labels=True,
                                     xflip=False)
         ds2 = UKBiobankMRIDataset2D(data_name=dataset, 
@@ -148,17 +148,19 @@ def run_visualizer_two_covs(
                                         path=data_path1,
                                         mode="test",
                                         use_labels=True,
-                                        xflip=False)
+                                        xflip=False,
+                                        include_numbers=True)
         ds2 = MorphoMNISTDataset_causal(data_name=dataset,
                                         path=data_path2,
                                         mode="test",
                                         use_labels=True,
-                                        xflip=False)
+                                        xflip=False, 
+                                        include_numbers=True)
     ## raw labels
     labels1 = ds1._load_raw_labels() ## (c1, c2, c3) ## source1
-    labels1_min, labels1_max = labels1.min(axis=0), labels1.max(axis=0)
+    labels1_min, labels1_max = np.quantile(labels1, 0.30, axis=0), np.quantile(labels1, 0.95, axis=0)
     labels2 = ds2._load_raw_labels() ## (c1, c2, c3) ## source2
-    labels2_min, labels2_max = labels2.min(axis=0), labels2.max(axis=0)
+    labels2_min, labels2_max = np.quantile(labels2, 0.30, axis=0), np.quantile(labels2, 0.97, axis=0)
     c1_min, c1_max = min(labels1_min[0], labels2_min[0]), max(labels1_max[0], labels2_max[0]) ## c1 fixed
     c2_min, c2_max = min(labels1_min[1], labels2_min[1]), max(labels1_max[1], labels2_max[1]) ## c2
     c3_min, c3_max = min(labels1_min[2], labels2_min[2]), max(labels1_max[2], labels2_max[2]) ## c3
@@ -193,7 +195,7 @@ def run_visualizer_two_covs(
         c2_norm = (c2_range - ds1.model["intensity_mu"]) / ds1.model["intensity_std"]
         c3_norm = (c3_range - ds1.model["slant_mu"]) / ds1.model["slant_std"]
         ## classes
-        c4_norm = F.one_hot(torch.tensor(np.array([3] * num_labels).reshape(-1, 1), dtype=torch.long),
+        c4_norm = F.one_hot(torch.tensor(np.array([7] * num_labels).reshape(-1, 1), dtype=torch.long),
             num_classes=10).squeeze(1).to(device)
     c_norm = torch.tensor(np.concatenate([c1_norm, c2_norm, c3_norm], axis=1)).to(device)
     if dataset == "mnist-thickness-intensity-slant":

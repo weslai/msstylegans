@@ -17,7 +17,7 @@ import legacy
 from evaluations.eval_utils import get_k_lowest_checkpoints
 
 ## pairplot
-def plot_pairplots(df, kind: str = "hist", diag_kind: str = "hist", save_path: str = None):
+def plot_pairplots(df, kind: str = "hist", diag_kind: str = "kde", save_path: str = None):
     """
         df: (pd.DataFrame) with columns names (add type as a column)
     """
