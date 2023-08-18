@@ -38,7 +38,7 @@ def parse_vec2(s: Union[str, Tuple[float, float]]) -> Tuple[float, float]:
 @click.option('--data-path2', 'data_path2', type=str, help='Path to the data source 2', required=True)
 @click.option('--source-gan', 'source_gan', type=click.Choice(["single", "multi"]), help='which source of GAN', default="multi", required=True)
 @click.option('--num-samples', 'num_samples', type=int, help='Number of samples to generate', default=10000, show_default=True)
-@click.option('--trunc', 'truncation_psi', type=float, help='Truncation psi', default=0.8, show_default=True)
+@click.option('--trunc', 'truncation_psi', type=float, help='Truncation psi', default=1, show_default=True)
 @click.option('--noise-mode', 'noise_mode', help='Noise mode', type=click.Choice(['const', 'random', 'none']), 
               default='const', show_default=True)
 @click.option('--translate', help='Translate XY-coordinate (e.g. \'0.3,1\')', type=parse_vec2, 
@@ -78,51 +78,51 @@ def run_stratified_fid(
     if dataset == "ukb":
         ds1 = UKBiobankMRIDataset2D(data_name=dataset, 
                                     path=data_path1, 
-                                    mode="train", 
+                                    mode="test", 
                                     use_labels=True,
                                     xflip=False)
         ds2 = UKBiobankMRIDataset2D(data_name=dataset, 
                                     path=data_path2, 
-                                    mode="train", 
+                                    mode="test", 
                                     use_labels=True,
                                     xflip=False)
         ds_gen = UKBiobankMRIDataset2D_single(data_name=dataset,
                                     path=data_path1,
-                                    mode="train", 
+                                    mode="test", 
                                     use_labels=True,
                                     xflip=False)
     elif dataset == "retinal":
         ds1 = UKBiobankRetinalDataset2D(data_name=dataset, 
                                     path=data_path1, 
-                                    mode="train", 
+                                    mode="test", 
                                     use_labels=True,
                                     xflip=False)
         ds2 = UKBiobankRetinalDataset2D(data_name=dataset, 
                                     path=data_path2, 
-                                    mode="train", 
+                                    mode="test", 
                                     use_labels=True,
                                     xflip=False)
         ds_gen = UKBiobankRetinalDataset2D_single(data_name=dataset,
                                     path=data_path1,
-                                    mode="train", 
+                                    mode="test", 
                                     use_labels=True,
                                     xflip=False)
     elif dataset == "mnist-thickness-intensity-slant":
         ds1 = MorphoMNISTDataset_causal(data_name=dataset, 
                                     path=data_path1, 
-                                    mode="train", 
+                                    mode="test", 
                                     use_labels=True,
                                     xflip=False,
                                     include_numbers=True)
         ds2 = MorphoMNISTDataset_causal(data_name=dataset, 
                                     path=data_path2, 
-                                    mode="train", 
+                                    mode="test", 
                                     use_labels=True,
                                     xflip=False,
                                     include_numbers=True)
         ds_gen = MorphoMNISTDataset_causal_single(data_name=dataset,
                                     path=data_path1,
-                                    mode="train", 
+                                    mode="test", 
                                     use_labels=True,
                                     xflip=False,
                                     include_numbers=True)
@@ -168,7 +168,7 @@ def run_stratified_fid(
                 cur_c2 = (strata_hist["c2"][stra_c2-1], c2_max)
             for stra_c3 in strata_idxs:
                 if stra_c3 == 0:
-                    cur_c3 = (c3_min, strata_hist["c3"][stra_c3+1])
+                    cur_c3 = (c3_min, strata_hist["c3"][stra_c3])
                 elif stra_c3 == 1:
                     cur_c3 = (strata_hist["c3"][stra_c3-1], strata_hist["c3"][stra_c3])
                 else:

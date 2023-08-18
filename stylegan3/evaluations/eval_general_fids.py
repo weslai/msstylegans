@@ -40,7 +40,7 @@ def parse_vec2(s: Union[str, Tuple[float, float]]) -> Tuple[float, float]:
 @click.option('--data-path2', 'data_path2', type=str, help='Path to the data source 2', default=None, required=False)
 @click.option('--source-gan', 'source_gan', type=click.Choice(["single", "multi"]), help='which source of GAN', default="multi", required=True)
 @click.option('--num-samples', 'num_samples', type=int, help='Number of samples to generate', default=10000, show_default=True)
-@click.option('--trunc', 'truncation_psi', type=float, help='Truncation psi', default=0.8, show_default=True)
+@click.option('--trunc', 'truncation_psi', type=float, help='Truncation psi', default=1, show_default=True)
 @click.option('--noise-mode', 'noise_mode', help='Noise mode', type=click.Choice(['const', 'random', 'none']), 
               default='const', show_default=True)
 @click.option('--translate', help='Translate XY-coordinate (e.g. \'0.3,1\')', type=parse_vec2, 
@@ -83,13 +83,13 @@ def run_general_fid(
             ## seed is as the common convariate (c1)
             ds1 = MorphoMNISTDataset_causal(data_name=dataset,
                                             path=data_path1,
-                                            mode="train",
+                                            mode="test",
                                             use_labels=True,
                                             xflip=False,
                                             include_numbers=True)
             ds2 = MorphoMNISTDataset_causal(data_name=dataset2,
                                             path=data_path2,
-                                            mode="train",
+                                            mode="test",
                                             use_labels=True,
                                             xflip=False,
                                             include_numbers=True)
@@ -102,13 +102,13 @@ def run_general_fid(
             ## seed is as the common convariate (c1)
             ds1 = MorphoMNISTDataset_causal_single(data_name=dataset,
                                             path=data_path1,
-                                            mode="train",
+                                            mode="test",
                                             use_labels=True,
                                             xflip=False,
                                             include_numbers=True)
             ds2 = MorphoMNISTDataset_causal_single(data_name=dataset2,
                                             path=data_path2,
-                                            mode="train",
+                                            mode="test",
                                             use_labels=True,
                                             xflip=False,
                                             include_numbers=True)
@@ -118,7 +118,7 @@ def run_general_fid(
         else:
             ds1 = MorphoMNISTDataset_causal_single(data_name=dataset,
                                             path=data_path1,
-                                            mode="train",
+                                            mode="test",
                                             use_labels=True,
                                             xflip=False,
                                             include_numbers=True)
@@ -127,24 +127,24 @@ def run_general_fid(
         if data_path2 is not None and source_gan == "multi":
             ds1 = UKBiobankMRIDataset2D(data_name=dataset, 
                                         path=data_path1, 
-                                        mode="train", 
+                                        mode="test", 
                                         use_labels=True,
                                         xflip=False)
             ds2 = UKBiobankMRIDataset2D(data_name=dataset, 
                                         path=data_path2, 
-                                        mode="train", 
+                                        mode="test", 
                                         use_labels=True,
                                         xflip=False)
             concat_ds = ConcatDataset(ds1, ds2)
         elif data_path2 is not None and source_gan == "single":
             ds1 = UKBiobankMRIDataset2D_single(data_name=dataset,
                                         path=data_path1, 
-                                        mode="train", 
+                                        mode="test", 
                                         use_labels=True,
                                         xflip=False)
             ds2 = UKBiobankMRIDataset2D_single(data_name=dataset, 
                                         path=data_path2, 
-                                        mode="train", 
+                                        mode="test", 
                                         use_labels=True,
                                         xflip=False)
             concat_ds = ConcatDataset(ds1, ds2)
@@ -153,7 +153,7 @@ def run_general_fid(
         else:
             ds1 = UKBiobankMRIDataset2D_single(data_name=dataset,
                                                 path=data_path1, 
-                                                mode="train", 
+                                                mode="test", 
                                                 use_labels=True,
                                                 xflip=False)
             labels = ds1._load_raw_labels()
@@ -161,24 +161,24 @@ def run_general_fid(
         if data_path2 is not None and source_gan == "multi":
             ds1 = UKBiobankRetinalDataset2D(data_name=dataset,
                                         path=data_path1,
-                                        mode="train",
+                                        mode="test",
                                         use_labels=True,
                                         xflip=False)
             ds2 = UKBiobankRetinalDataset2D(data_name=dataset,
                                         path=data_path2,
-                                        mode="train",
+                                        mode="test",
                                         use_labels=True,
                                         xflip=False)
             concat_ds = ConcatDataset(ds1, ds2)
         elif data_path2 is not None and source_gan == "single":
             ds1 = UKBiobankRetinalDataset2D_single(data_name=dataset,
                                             path=data_path1,
-                                            mode="train",
+                                            mode="test",
                                             use_labels=True,
                                             xflip=False)
             ds2 = UKBiobankRetinalDataset2D_single(data_name=dataset,
                                             path=data_path2,
-                                            mode="train",
+                                            mode="test",
                                             use_labels=True,
                                             xflip=False)
             concat_ds = ConcatDataset(ds1, ds2)
@@ -187,7 +187,7 @@ def run_general_fid(
         else:
             ds1 = UKBiobankRetinalDataset2D_single(data_name=dataset,
                                         path=data_path1, 
-                                        mode="train", 
+                                        mode="test", 
                                         use_labels=True,
                                         xflip=False)
             labels = ds1._load_raw_labels()
