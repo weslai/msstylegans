@@ -21,7 +21,7 @@ from scipy import stats
 def get_settings(dataset: str):
     if dataset == "ukb":
         n_components = 10
-        age_estimator = "gmm"
+        age_estimator = "beta"
         log_volumes = True
     elif dataset == "adni":
         n_components = None

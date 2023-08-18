@@ -787,7 +787,7 @@ class NACCMRIDataset2D(ImageFolderDataset):
         path, 
         resolution=None,
         mode: str = "train", ## ["train", "val", "test"]
-        data_name: str = "adni",
+        data_name: str = "nacc",
         **super_kwargs
     ):
         self.mode = mode
