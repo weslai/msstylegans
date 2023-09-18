@@ -7,9 +7,9 @@ import torch
 import numpy as np
 import pandas as pd
 import json
-import copy
 import dnnlib
 from torchmetrics.image.fid import FrechetInceptionDistance
+from torchmetrics import MeanSquaredError, MeanAbsoluteError
 
 from metrics.metric_main import is_valid_metric, _metric_dict
 ### -----------
@@ -155,3 +155,25 @@ def calc_fid_score(
         fid.update(img_dist2[i:min(i+batch_size, len(img_dist2))], real=False)
     fid_score = fid.compute()
     return fid_score
+
+
+def calc_mean_scores(
+    img_dist,
+    true_labels,
+    regr_model,
+    batch_size=64
+):
+    _ = torch.manual_seed(64)
+    num_samples = img_dist.shape[0]
+    predictions = []
+    for i in range(0, num_samples, batch_size):
+        img_batch = img_dist[i:min(i+batch_size, num_samples)]
+        score = regr_model(img_batch.float()).cpu().detach()
+        predictions.append(score)
+    predictions = torch.concat(predictions, axis=0).to(device=true_labels.device)
+
+    mse = MeanSquaredError().to(device=true_labels.device)
+    mse_score = mse(predictions, true_labels).cpu().detach().numpy()
+    mae = MeanAbsoluteError().to(device=true_labels.device)
+    mae_score = mae(predictions, true_labels).cpu().detach().numpy()
+    return mse_score, mae_score

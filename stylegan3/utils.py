@@ -15,9 +15,10 @@ import legacy
 ### --- Own ---
 ### -----------
 from evaluations.eval_utils import get_k_lowest_checkpoints
+from eval_regr.model import RegressionResnet
 
 ## pairplot
-def plot_pairplots(df, kind: str = "hist", diag_kind: str = "kde", save_path: str = None):
+def plot_pairplots(df, kind: str = "hist", diag_kind: str = "hist", save_path: str = None):
     """
         df: (pd.DataFrame) with columns names (add type as a column)
     """
@@ -123,6 +124,18 @@ def load_discriminator(
     with dnnlib.util.open_url(network_pkl) as f:
         D = legacy.load_network_pkl(f)["D"].to(device)
     return D
+
+def load_regression_model(
+    checkpoint_path: str
+):
+    """load the regression model for evaluations, regression model gets the input as images
+    and outputs the covariates (i.e. age, grey matter volume, etc.)
+
+    Checkpoint
+    Returns:
+    """
+    return RegressionResnet.load_from_checkpoint(checkpoint_path)
+    
 
 ### -------------------- ###
 ### FOR IMAGE GENERATION ###
