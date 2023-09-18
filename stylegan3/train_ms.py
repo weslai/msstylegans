@@ -196,6 +196,7 @@ def parse_comma_separated_list(s):
 @click.option('--aug',          help='Augmentation mode',                                       type=click.Choice(['noaug', 'ada', 'fixed']), default='noaug', show_default=True)
 @click.option('--exact_resume',help='Resume from given exact network pickle',                   type=bool, default=False, show_default=True)
 @click.option('--resume',       help='Resume from given network pickle', metavar='[PATH|URL]',  type=str)
+@click.option('--resume_kimg',  help='Resume from given kilo-images', metavar='INT',           type=int, default=0, show_default=True)
 @click.option('--freezed',      help='Freeze first layers of D', metavar='INT',                 type=click.IntRange(min=0), default=0, show_default=True)
 @click.option('--data_scenario', help='data scenario', metavar='STR',                          type=click.Choice(["low", "high", "lowlow", "highlow", "half"]), 
                                                                                 default='high', show_default=True)
@@ -214,9 +215,9 @@ def parse_comma_separated_list(s):
 # Misc settings.
 @click.option('--desc',         help='String to include in result dir name', metavar='STR',     type=str)
 @click.option('--metrics',      help='Quality metrics', metavar='[NAME|A,B,C|none]',            type=parse_comma_separated_list, default=['fid50k_full'], show_default=True)
-@click.option('--kimg',         help='Total training duration', metavar='KIMG',                 type=click.IntRange(min=1), default=14000, show_default=True)
+@click.option('--kimg',         help='Total training duration', metavar='KIMG',                 type=click.IntRange(min=1), default=25000, show_default=True)
 @click.option('--tick',         help='How often to print progress', metavar='KIMG',             type=click.IntRange(min=1), default=4, show_default=True)
-@click.option('--snap',         help='How often to save snapshots', metavar='TICKS',            type=click.IntRange(min=1), default=160, show_default=True)
+@click.option('--snap',         help='How often to save snapshots', metavar='TICKS',            type=click.IntRange(min=1), default=200, show_default=True)
 @click.option('--seed',         help='Random seed', metavar='INT',                              type=click.IntRange(min=0), default=0, show_default=True)
 @click.option('--fp32',         help='Disable mixed-precision', metavar='BOOL',                 type=bool, default=False, show_default=True)
 @click.option('--nobench',      help='Disable cuDNN benchmarking', metavar='BOOL',              type=bool, default=False, show_default=True)
@@ -362,15 +363,19 @@ def main(**kwargs):
         if opts.aug == 'fixed':
             c.augment_p = opts.p
 
+    c.resume_kimg = opts.resume_kimg
     # Resume.
     if opts.resume is not None:
         if opts.exact_resume:
             c.resume_pkl = opts.resume
+            ckpt = int(opts.resume.split('/')[-1].split('.')[0].split('-')[-1])
         else:    
             k_path, fid_score, kidx = get_k_lowest_checkpoints(metric_jsonl=opts.resume, k=1)
             print(f"Resume from {k_path[0]} with fid score {fid_score[0]}")
             result_path = "/" + os.path.join(*opts.resume.split('/')[:-1])
             c.resume_pkl = os.path.join(result_path, k_path[0])
+            ckpt = int(k_path[0].split('.')[0].split('-')[-1])
+        c.resume_kimg = ckpt
         c.ada_kimg = 100 # Make ADA react faster at the beginning.
         c.ema_rampup = None # Disable EMA rampup.
         c.loss_kwargs.blur_init_sigma = 0 # Disable blur rampup.

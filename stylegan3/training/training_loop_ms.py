@@ -345,6 +345,8 @@ def training_loop(
         cur_lambda = 0.5
     else:
         cur_lambda = 0
+    cur_metric = np.inf
+    early_stop = 0
     while True:
 
         # Fetch training data.
@@ -574,6 +576,12 @@ def training_loop(
                     metric_main.report_metric(result_dict, run_dir=run_dir, snapshot_pkl=snapshot_pkl)
                     wandb.log(result_dict, step=cur_nimg)
                 stats_metrics.update(result_dict.results)
+            ## assume only FID is used
+            if stats_metrics["fid50k_full"] < cur_metric:
+                cur_metric = stats_metrics["fid50k_full"]
+                early_stop = 0
+            else:
+                early_stop += 1
         del snapshot_data # conserve memory
 
         # Collect statistics.
@@ -594,8 +602,8 @@ def training_loop(
             stats_jsonl.write(json.dumps(fields) + '\n')
             stats_jsonl.flush()
         # if stats_tfevents is not None:
-        global_step = int(cur_nimg / 1e3)
-        walltime = timestamp - start_time
+        # global_step = int(cur_nimg / 1e3)
+        # walltime = timestamp - start_time
         for name, value in stats_dict.items():
             # stats_tfevents.add_scalar(name, value.mean, global_step=global_step, walltime=walltime)
             wandb.log({name: value.mean}, step=cur_nimg)
@@ -613,6 +621,13 @@ def training_loop(
         maintenance_time = tick_start_time - tick_end_time
         wandb.log({'lambda (mse)': cur_lambda}, step=cur_nimg)
         cur_lambda = min(0.9, cur_lambda + 1 / 50)
+        ## early stopping
+        if early_stop > 15:
+            done = True
+            if rank == 0:
+                print()
+                print(f"current step: {cur_nimg}")
+                print('Early stopping...')
         if done:
             break
 
