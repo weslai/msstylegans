@@ -5,6 +5,7 @@ import json
 import numpy as np
 import pandas as pd
 import torch
+import torchvision.transforms as transforms
 sys.path.append("/dhc/home/wei-cheng.lai/projects/msstylegans")
 import dnnlib
 
@@ -100,6 +101,14 @@ def calculate_loss(
                             real_cov_labels.append(dataset2.get_norm_label(idx))
                         ## (batch_size, channel (3), pixel, pixel)
                         real_imgs = torch.stack(real_imgs, dim=0).repeat([1,1,1,1]).to(device)
+                        if real_imgs.shape[1] == 3:
+                            mu=[0.485, 0.456, 0.406],
+                            std=[0.229, 0.224, 0.225]
+                            real_imgs = real_imgs.div(255)
+                            for i in range(len(mu)):
+                                real_imgs[:, i, :, :] = (real_imgs[:, i, :, :] - mu[i]) / std[i]
+                        else:
+                            real_imgs = real_imgs.div(255)
                         real_cov_labels = torch.from_numpy(np.stack(real_cov_labels, axis=0)).to(device)
                         real_cov_labels = real_cov_labels[:, cov].reshape(-1,1)
                     ## get samples from GANs
@@ -126,24 +135,32 @@ def calculate_loss(
                                     gen_l = l[:, [0, 2]]
                         batch_imgs = generate_images(Gen, z, gen_l if source_gan != "multi" else l, 
                                                         truncation_psi, 
-                                                        noise_mode, translate, rotate).permute(0,3,1,2).cpu().detach()
+                                                        noise_mode, translate, rotate).permute(0,3,1,2)
+                        if batch_imgs.shape[1] == 3:
+                            mu=[0.485, 0.456, 0.406],
+                            std=[0.229, 0.224, 0.225]
+                            batch_imgs = batch_imgs.div(255).cpu().detach()
+                            for i in range(len(mu)):
+                                batch_imgs[:, i, :, :] = (batch_imgs[:, i, :, :] - mu[i]) / std[i]
+                        else:
+                            batch_imgs = batch_imgs.div(255).cpu().detach()
                         gen_imgs.append(batch_imgs)
                         cov_labels.append(l[:, cov].reshape(-1,1))
                     gen_imgs = torch.cat(gen_imgs, dim=0).repeat([1,1,1,1]).to(device)## (batch_size, channel, pixel, pixel)
                     cov_labels = torch.cat(cov_labels, dim=0).to(device)
                     ### within strata, calculate mae, mse
-                    gen_mse, gen_mae = calc_mean_scores(gen_imgs, cov_labels, regr_model, batch_size=64)
-                    print(f"strata: {cur_c1}, {cur_c2}, {cur_c3}, MSE: {gen_mse}, MAE: {gen_mae}")
+                    gen_mse, gen_mae, gen_corr = calc_mean_scores(gen_imgs, cov_labels, regr_model, batch_size=64)
+                    print(f"strata: {cur_c1}, {cur_c2}, {cur_c3}, MSE: {gen_mse}, MAE: {gen_mae}, CORR: {gen_corr}")
                     if source_gan == "multi":
-                        real_mse, real_mae = calc_mean_scores(real_imgs, real_cov_labels, regr_model, batch_size=64)
-                        print(f"strata: {cur_c1}, {cur_c2}, {cur_c3}, MSE: {real_mse}, MAE: {real_mae}")
+                        real_mse, real_mae, real_corr = calc_mean_scores(real_imgs, real_cov_labels, regr_model, batch_size=64)
+                        print(f"strata: {cur_c1}, {cur_c2}, {cur_c3}, MSE: {real_mse}, MAE: {real_mae}, CORR: {real_corr}")
                         ### save the evaluation analysis to a json file
                         scores.append(np.array([num_real, cur_c1[0], cur_c1[1], cur_c2[0], cur_c2[1],
-                                    cur_c3[0], cur_c3[1], gen_mse, gen_mae, real_mse, real_mae]))
+                                    cur_c3[0], cur_c3[1], gen_mse, gen_mae, gen_corr, real_mse, real_mae, real_corr]))
                     else: ## source1 or source2
                         ### save the evaluation analysis to a json file
                         scores.append(np.array([num_real, cur_c1[0], cur_c1[1], cur_c2[0], cur_c2[1],
-                                    cur_c3[0], cur_c3[1], gen_mse, gen_mae]))
+                                    cur_c3[0], cur_c3[1], gen_mse, gen_mae, gen_corr]))
     scores = np.stack(scores, axis=0)
     return scores
 # --------------------------------------------------------------------------------------
@@ -278,14 +295,14 @@ def run_stratified_mse(opts):
                                                 "c1_min", "c1_max", 
                                                 "c2_min", "c2_max",
                                                 "c3_min", "c3_max",
-                                                "gen_mse", "gen_mae",
-                                                "real_mse", "real_mae"])
+                                                "gen_mse", "gen_mae", "gen_corr",
+                                                "real_mse", "real_mae", "real_corr"])
     else:
         scores_df = pd.DataFrame(scores, columns=["num_samples",
                                                 "c1_min", "c1_max", 
                                                 "c2_min", "c2_max", 
                                                 "c3_min", "c3_max", 
-                                                "gen_mse", "gen_mae"])
+                                                "gen_mse", "gen_mae", "gen_corr"])
     scores_df.to_csv(os.path.join(outdir, f"stratified_loss_{cov}.csv"), index=False)
 
 ## --------------------------- ##

@@ -1,10 +1,11 @@
 from typing import Tuple, Union
-import os
+import os, sys
 import torch
 import numpy as np
 import pandas as pd
 import json
 import click
+sys.path.append("/dhc/home/wei-cheng.lai/projects/msstylegans")
 ### -------------------
 ### --- Own ---
 ### -------------------

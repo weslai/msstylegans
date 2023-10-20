@@ -6,6 +6,7 @@ import time
 import torch
 import numpy as np
 import pandas as pd
+import scipy.stats as stats
 import json
 import dnnlib
 from torchmetrics.image.fid import FrechetInceptionDistance
@@ -176,4 +177,9 @@ def calc_mean_scores(
     mse_score = mse(predictions, true_labels).cpu().detach().numpy()
     mae = MeanAbsoluteError().to(device=true_labels.device)
     mae_score = mae(predictions, true_labels).cpu().detach().numpy()
-    return mse_score, mae_score
+
+    predictions_df = pd.DataFrame(predictions.numpy())
+    true_labels_df = pd.DataFrame(true_labels.numpy())
+    corr, _ = stats.pearsonr(predictions_df.values.flatten(), true_labels_df.values.flatten())
+
+    return mse_score, mae_score, corr
