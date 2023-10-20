@@ -6,13 +6,12 @@ import torch
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor, EarlyStopping, RichProgressBar
-# from pytorch_lightning.callbacks.progress import ProgressBarBase
-# from torchmetrics import MeanSquaredError
 import stylegan3.dnnlib as dnnlib
 
 ### --- own --- ###
 from eval_regr.model import RegressionResnet
 from eval_regr.dataset import MorphoMNISTDataModule, UKBiobankMRIDataModule, UKBiobankRetinaDataModule
+from eval_regr.dataset import MNISTDataModule
 
 
 def train_model(opts):
@@ -63,13 +62,23 @@ def train_model(opts):
             num_workers=NUM_WORKERS,
             xflip=False,
         )
+    elif opts.data_name == "mnist":
+        dm = MNISTDataModule(
+            data_dir=opts.data_dir,
+            data_name=opts.data_name,
+            use_labels=True,
+            covariate=opts.covariate,
+            batch_size=BATCH_SIZE,
+            num_workers=NUM_WORKERS,
+            xflip=False,
+        )
     else:
         raise ValueError(f"data_name {opts.data_name} not found")
     
     model = RegressionResnet(
         ch_in=1 if opts.data_name != "retinal" else 3, 
         batch_size=BATCH_SIZE,
-        learning_rate=1e-3,
+        learning_rate=1e-2,
     )
 
     callbacks = [

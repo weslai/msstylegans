@@ -1,7 +1,10 @@
 import os
 from typing import Optional
 import pytorch_lightning as pl
+import torch
 from  torch.utils.data import DataLoader
+from torchvision.datasets import MNIST
+from torchvision import transforms
 
 ### --- own --- ###
 from eval_regr.eval_dataset import MorphoMNISTDataset_causal, UKBiobankMRIDataset2D, UKBiobankRetinalDataset2D
@@ -200,3 +203,18 @@ class UKBiobankRetinaDataModule(MorphoMNISTDataModule):
             
         if stage == "predict":
             pass
+
+class MNISTDataModule(MorphoMNISTDataModule):
+    def __init__(self, data_dir, data_name: str, use_labels: bool = True, 
+                 xflip: bool = False, batch_size: int = 128, covariate: str = "thickness", 
+                 num_workers: int = 4
+    ):
+        super().__init__(data_dir, data_name, use_labels, xflip, batch_size, covariate, num_workers)
+
+
+    def setup(self, stage: str):
+        if stage == "fit":
+            self.data_train = MNIST(self.data_dir, train=True, download=True, transform=transforms.ToTensor())
+            self.data_train, self.data_val = torch.utils.data.random_split(self.data_train, [55000, 5000])
+        if stage == "test":
+            self.data_val = MNIST(self.data_dir, train=False, download=True, transform=transforms.ToTensor())

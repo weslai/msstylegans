@@ -15,6 +15,7 @@ import PIL.Image
 import json
 import torch
 import torch.nn.functional as F
+import torchvision.transforms as transforms
 import stylegan3.dnnlib as dnnlib
 import nibabel as nib
 
@@ -100,14 +101,7 @@ class Dataset(torch.utils.data.Dataset):
         return self._raw_idx.size
 
     def __getitem__(self, idx):
-        image = self._load_raw_image(self._raw_idx[idx])
-        assert isinstance(image, np.ndarray)
-        assert list(image.shape) == self.image_shape
-        assert image.dtype == np.uint8
-        if self._xflip[idx]:
-            assert image.ndim == 3 # CHW
-            image = image[:, :, ::-1]
-        return image.copy(), self.get_norm_label(idx)
+        raise NotImplementedError
 
     def get_label(self, idx):
         label = self._get_raw_labels()[self._raw_idx[idx]]
@@ -189,6 +183,7 @@ class ImageFolderDataset(Dataset):
         self._path = path
         self._zipfile = None
         self._check_mode(mode)
+        self._mode = mode
 
         if os.path.isdir(self._path):
             self._type = 'dir'
@@ -260,6 +255,47 @@ class ImageFolderDataset(Dataset):
 
     def __getstate__(self):
         return dict(super().__getstate__(), _zipfile=None)
+    
+    def __getitem__(self, idx):
+        image = self._load_raw_image(self._raw_idx[idx])
+        assert isinstance(image, np.ndarray)
+        assert list(image.shape) == self.image_shape
+        assert image.dtype == np.uint8
+        if self._xflip[idx]:
+            assert image.ndim == 3 # CHW
+            image = image[:, :, ::-1]
+        image = image.transpose(1, 2, 0) # CHW => HWC
+        if image.shape[-1] == 3:
+            if self._mode == "train":
+                compose = transforms.Compose([
+                    # transforms..RandomRotation(degrees=15),
+                    # transforms.RandomHorizontalFlip(p=0.3),
+                    transforms.ToTensor(),
+                    transforms.Normalize(
+                        mean=[0.485, 0.456, 0.406],
+                        std=[0.229, 0.224, 0.225]
+                    )
+                ])
+            else:
+                normalize = transforms.Normalize(
+                    mean=[0.485, 0.456, 0.406],
+                    std=[0.229, 0.224, 0.225]
+                )
+                compose = transforms.Compose([
+                    transforms.ToTensor(),
+                    normalize
+                ])
+        else:
+            if self._mode == "train":
+                compose = transforms.Compose([
+                    # transforms.RandomRotation(degrees=15),
+                    # transforms.RandomHorizontalFlip(),
+                    transforms.ToTensor()
+                ])
+            else:
+                compose = transforms.ToTensor()
+        image = compose(image).cpu().detach().numpy()
+        return image.copy(), self.get_norm_label(idx).copy()
 
     def _load_raw_image(self, raw_idx):
         fname = self._image_fnames[raw_idx]
@@ -785,11 +821,11 @@ class UKBiobankRetinalDataset2D(ImageFolderDataset):
         resolution=None,
         mode: str = "train", ## ["train", "val", "test"]
         data_name: str = "ukb",
-        covariate: str = "age", ## ["age", "diastolic", "spherical"]
+        covariate: str = "age", ## ["age", "systolic", "diastolic", "spherical", "cylindrical"]
         **super_kwargs
     ):
         assert mode in ["train", "val", "test"]
-        assert covariate in ["age", "diastolic", "spherical"]
+        assert covariate in ["age", "systolic", "diastolic", "spherical", "cylindrical"]
         self.mode = mode
         self.data_name = data_name
         ## which source
@@ -825,7 +861,7 @@ class UKBiobankRetinalDataset2D(ImageFolderDataset):
             trainlabels = dict(trainlabels)
             trainlabels = [trainlabels[fname.replace("\\", "/")] for fname in self.train_image_fnames] ## a dict
 
-            new_labels = np.zeros(shape=(len(trainlabels), 3), dtype=np.float32)
+            new_labels = np.zeros(shape=(len(trainlabels), 5), dtype=np.float32)
             for num, l in enumerate(trainlabels):
                 i = list(l[self.vars[0]].items())[0][0]
                 temp = [l[var][str(i)] for var in self.vars]
@@ -839,21 +875,29 @@ class UKBiobankRetinalDataset2D(ImageFolderDataset):
             age_max = np.max(labels[:, 0]),
             diastolic_bp_mu = np.mean(np.log(labels[:, 1])) if self.log_volumes_source1 else np.mean(labels[:, 1]),
             diastolic_bp_std = np.std(np.log(labels[:, 1])) if self.log_volumes_source1 else np.std(labels[:, 1]),
-            spherical_power_left_mu = np.mean(np.log(labels[:, 2] + 1e2)) if self.log_volumes_source2 else np.mean(labels[:, 2]),
-            spherical_power_left_std = np.std(np.log(labels[:, 2] + 1e2)) if self.log_volumes_source2 else np.std(labels[:, 2]),
+            systolic_bp_mu = np.mean(np.log(labels[:, 2])) if self.log_volumes_source1 else np.mean(labels[:, 2]),
+            systolic_bp_std = np.std(np.log(labels[:, 2])) if self.log_volumes_source1 else np.std(labels[:, 2]),
+            spherical_power_left_mu = np.mean(np.log(labels[:, 3] + 1e2)) if self.log_volumes_source2 else np.mean(labels[:, 3]),
+            spherical_power_left_std = np.std(np.log(labels[:, 3] + 1e2)) if self.log_volumes_source2 else np.std(labels[:, 3]),
+            cylindrical_power_left_mu = np.mean(np.log(labels[:, 4])) if self.log_volumes_source2 else np.mean(labels[:, 4]),
+            cylindrical_power_left_std = np.std(np.log(labels[:, 4])) if self.log_volumes_source2 else np.std(labels[:, 4])
         )
         return model
 
-    def _normalise_labels(self, age, diastolic_bp=None, spherical_power_left=None):
+    def _normalise_labels(self, age, diastolic_bp=None, systolic_bp=None, spherical_power_left=None, cylindrical_power_left=None):
         ## zero mean normalisation
         age = (age - self.model["age_min"]) / (self.model["age_max"] - self.model["age_min"])
         if self.log_volumes_source1:
             diastolic_bp = np.log(diastolic_bp)
+            systolic_bp = np.log(systolic_bp)
         bp = (diastolic_bp - self.model["diastolic_bp_mu"]) / self.model["diastolic_bp_std"]
+        systolic_bp = (systolic_bp - self.model["systolic_bp_mu"]) / self.model["systolic_bp_std"]
         if self.log_volumes_source2:
             spherical_power_left = np.log(spherical_power_left + 1e2)
+            cylindrical_power_left = np.log(cylindrical_power_left)
         spherical_power_left = (spherical_power_left - self.model["spherical_power_left_mu"]) / self.model["spherical_power_left_std"]
-        samples = np.concatenate([age, bp, spherical_power_left], 1)
+        cylindrical_power_left = (cylindrical_power_left - self.model["cylindrical_power_left_mu"]) / self.model["cylindrical_power_left_std"]
+        samples = np.concatenate([age, bp, systolic_bp, spherical_power_left, cylindrical_power_left], 1)
         return samples
 
     def _load_raw_labels(self):
@@ -866,9 +910,9 @@ class UKBiobankRetinalDataset2D(ImageFolderDataset):
             return None
         labels = dict(labels)
         labels = [labels[fname.replace("\\", "/")] for fname in self._image_fnames] ## a dict 
-        self.vars = ["age", "diastolic_bp", "spherical_power_left"]
+        self.vars = ["age", "diastolic_bp", "systolic_bp", "spherical_power_left", "cylindrical_power_left"]
 
-        new_labels = np.zeros(shape=(len(labels), 3), dtype=np.float32)
+        new_labels = np.zeros(shape=(len(labels), 5), dtype=np.float32)
         for num, l in enumerate(labels):
             i = list(l[self.vars[0]].items())[0][0]
             temp = [l[var][str(i)] for var in self.vars]
@@ -877,7 +921,9 @@ class UKBiobankRetinalDataset2D(ImageFolderDataset):
         self.new_labels_norm = self._normalise_labels(
             age=new_labels[:, 0].reshape(-1, 1),
             diastolic_bp=new_labels[:, 1].reshape(-1, 1),
-            spherical_power_left=new_labels[:, 2].reshape(-1, 1)
+            systolic_bp = new_labels[:, 2].reshape(-1, 1),
+            spherical_power_left=new_labels[:, 3].reshape(-1, 1),
+            cylindrical_power_left=new_labels[:, 4].reshape(-1, 1)
         )
 
         if self.covariate == "age":
@@ -886,9 +932,15 @@ class UKBiobankRetinalDataset2D(ImageFolderDataset):
         elif self.covariate == "diastolic":
             new_labels = new_labels[:, 1].reshape(-1, 1)
             self.new_labels_norm = self.new_labels_norm[:, 1].reshape(-1, 1)
-        elif self.covariate == "spherical":
+        elif self.covariate == "systolic":
             new_labels = new_labels[:, 2].reshape(-1, 1)
-            self.new_labels_norm =  self.new_labels_norm[:, 2].reshape(-1, 1)
+            self.new_labels_norm = self.new_labels_norm[:, 2].reshape(-1, 1)
+        elif self.covariate == "spherical":
+            new_labels = new_labels[:, 3].reshape(-1, 1)
+            self.new_labels_norm =  self.new_labels_norm[:, 3].reshape(-1, 1)
+        elif self.covariate == "cylindrical":
+            new_labels = new_labels[:, 4].reshape(-1, 1)
+            self.new_labels_norm = self.new_labels_norm[:, 4].reshape(-1, 1)
         return new_labels
 #----------------------------------------------------------------------------
 class UKBiobankRetinalDataset2D_single(ImageFolderDataset):
