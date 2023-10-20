@@ -764,14 +764,15 @@ class RFMiDDataset(ImageFolderDataset):
             return None
         labels = dict(labels)
         labels = [labels[fname.replace("\\", "/")] for fname in self._image_fnames] ## a dict
-        self.vars = [
+        # self.vars = [
             #"Disease_Risk",
-            "DR","ARMD","MH","DN","MYA",
-            "BRVO","TSLN","ERM","LS","MS","CSR","ODC","CRVO",
-            "TV","AH","ODP","ODE","ST","AION","PT","RT","RS","CRS",
-            "EDN","RPEC","MHL","RP","CWS","CB","ODPM","PRH","MNF","HR",
-            "CRAO","TD","CME","PTCR","CF","VH","MCA","VS","BRAO","PLQ","HPED","CL"
-        ]
+        #     "DR","ARMD","MH","DN","MYA",
+        #     "BRVO","TSLN","ERM","LS","MS","CSR","ODC","CRVO",
+        #     "TV","AH","ODP","ODE","ST","AION","PT","RT","RS","CRS",
+        #     "EDN","RPEC","MHL","RP","CWS","CB","ODPM","PRH","MNF","HR",
+        #     "CRAO","TD","CME","PTCR","CF","VH","MCA","VS","BRAO","PLQ","HPED","CL"
+        # ]
+        self.vars = ["Disease_Risk", "DR", "ARMD", "MH", "MYA", "BRVO", "TSLN", "ODC", "ODP"]
 
         new_labels = np.zeros(shape=(len(labels), len(self.vars)), dtype=np.float32)
         for num, l in enumerate(labels):
@@ -821,7 +822,7 @@ class NACCMRIDataset2D(ImageFolderDataset):
                 i = list(l[self.vars[0]].items())[0][0]
                 temp = [l[var][str(i)] for var in self.vars]
                 ## cdr 
-                temp[-1] = 1 if temp[-1] >= 1.0 else temp[-1]
+                # temp[-1] = 1 if temp[-1] >= 1.0 else temp[-1]
                 new_labels[num, :] = temp
             # self.excluded_files = np.where(new_labels[:, 1] == 9.0)[0]
             labels = new_labels[new_labels[:, 1] != 9.0]
@@ -831,20 +832,22 @@ class NACCMRIDataset2D(ImageFolderDataset):
             age_min = np.min(labels[:, 0]),
             age_max = np.max(labels[:, 0]),
             apoe_unique = np.unique(labels[:, 1]),
-            cdr_unique = np.unique(labels[:, -1]),
+            # cdr_unique = np.unique(labels[:, -1]),
         )
         return model
 
-    def _normalise_labels(self, age, apoe, cdr=None):
+    def _normalise_labels(self, age, apoe):
+        # , cdr=None):
         ## zero mean normalisation
         age = (age - self.model["age_min"]) / (self.model["age_max"] - self.model["age_min"])
         apoe_encoder = OneHotEncoder().fit(apoe)
         apoe = apoe_encoder.transform(apoe).toarray()
         apoe = apoe.astype(np.float32)
-        cdr_encoder = OneHotEncoder().fit(cdr)
-        cdr = cdr_encoder.transform(cdr).toarray()
-        cdr = cdr.astype(np.float32)
-        samples = np.concatenate([age, apoe, cdr], 1)
+        # cdr_encoder = OneHotEncoder().fit(cdr)
+        # cdr = cdr_encoder.transform(cdr).toarray()
+        # cdr = cdr.astype(np.float32)
+        # samples = np.concatenate([age, apoe, cdr], 1)
+        samples = np.concatenate([age, apoe], 1)
         return samples
     
     def _load_raw_labels(self):
@@ -858,13 +861,14 @@ class NACCMRIDataset2D(ImageFolderDataset):
         labels = dict(labels)
         labels = [labels[fname.replace("\\", "/")] for fname in self._image_fnames] ## a dict 
 
-        self.vars = ["Age", "Apoe4", "CDGLOBAL"]
+        self.vars = ["Age", "Apoe4"]
+        # self.vars = ["Age", "Apoe4", "CDGLOBAL"]
         new_labels = np.zeros(shape=(len(labels), len(self.vars)), dtype=np.float32)
         for num, l in enumerate(labels):
             i = list(l[self.vars[0]].items())[0][0]
             temp = [l[VAR][str(i)] for VAR in self.vars]
             ## cdr 
-            temp[-1] = 1 if temp[-1] >= 1.0 else temp[-1]
+            # temp[-1] = 1 if temp[-1] >= 1.0 else temp[-1]
             new_labels[num, :] = temp
         idx_apoe4_9 = np.where(new_labels[:, 1] != 9.0)[0]
         new_labels = new_labels[new_labels[:, 1] != 9.0] ## remove missing APoe4
@@ -875,7 +879,7 @@ class NACCMRIDataset2D(ImageFolderDataset):
         new_labels = self._normalise_labels(
             age=new_labels[:, 0].reshape(-1, 1),
             apoe=new_labels[:, 1].reshape(-1, 1),
-            cdr=new_labels[:, -1].reshape(-1, 1)
+            # cdr=new_labels[:, -1].reshape(-1, 1)
         )
         return new_labels
 ## --------------------------------------------------------------------------

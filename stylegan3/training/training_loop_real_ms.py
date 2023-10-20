@@ -288,6 +288,8 @@ def training_loop(
         print('Exporting sample images...')
         grid_size, images, labels = setup_snapshot_image_grid(training_set=training_set)
         save_image_grid(images, os.path.join(run_dir, 'reals.png'), drange=[0,255], grid_size=grid_size)
+        grid_size1, images1, labels1 = setup_snapshot_image_grid(training_set=training_set1)
+        save_image_grid(images1, os.path.join(run_dir, 'reals1.png'), drange=[0,255], grid_size=grid_size1)
         grid_z = torch.randn([labels.shape[0], G.z_dim], device=device).split(batch_gpu)
         
         ## labels estimation for source 1
@@ -295,15 +297,27 @@ def training_loop(
             sample_labels = latent_sampler2.sampling_model(len(labels))[1].cpu().detach().numpy()
             c_source = np.array([0] * len(labels)) ## source 1
             labels = np.concatenate([labels, sample_labels, c_source.reshape(len(labels), -1)], axis=1)
+            sample_labels1 = latent_sampler1.sample_normalize(len(labels1))
+            c_source1 = np.array([1] * len(labels1)) ## source 2
+            labels1 = np.concatenate([sample_labels1, labels1, c_source1.reshape(len(labels1), -1)], axis=1)
         elif training_set.data_name == "ukb":
             age = labels[:, 0] * (training_set.model["age_max"] - training_set.model["age_min"])  + training_set.model["age_min"]
             sample_labels = latent_sampler2.sampling_given_age(age=age, normalize=True).cpu().detach().numpy()
             c_source = np.array([0] * len(labels)) ## source 1
             labels = np.concatenate([labels, sample_labels[:, 1:], c_source.reshape(len(labels), -1)], axis=1)
+
+            age = labels1[:, 0] * (training_set1.model["age_max"] - training_set1.model["age_min"]) + training_set1.model["age_min"]
+            sample_labels1 = latent_sampler1.sampling_given_age(age, normalize=True).cpu().detach().numpy()
+            c_source1 = np.array([1] * len(labels1)) ## source 2
+            labels1 = np.concatenate([
+                labels1[:, 0].reshape(-1, 1), sample_labels1[:, 1:], 
+                labels1[:, 1:], c_source1.reshape(len(labels1), -1)], axis=1
+            )
         else:
             raise NotImplementedError("Unknown dataset name: ", training_set.data_name)
         
         grid_c = torch.from_numpy(labels).to(device).split(batch_gpu)
+        grid_c1 = torch.from_numpy(labels1).to(device).split(batch_gpu)
         images = torch.cat([G_ema(z=z, c=c, noise_mode='const').cpu() for z, c in zip(grid_z, grid_c)]).numpy()
         save_image_grid(images, os.path.join(run_dir, 'fakes_init.png'), drange=[-1,1], grid_size=grid_size)
 
@@ -337,6 +351,8 @@ def training_loop(
         cur_lambda = 0.5
     else:
         cur_lambda = 0
+    cur_metric = np.inf
+    early_stop = 0
     while True:
 
         # Fetch training data.
@@ -541,6 +557,10 @@ def training_loop(
             wandb_imgs = (images.transpose(0, 2, 3, 1) * 127.5 + 128).clip(0, 255).astype(np.uint8)
             wandb.log({'gen_imgs':[wandb.Image(img) for img in wandb_imgs[:8]]}, step=cur_nimg)
             save_image_grid(images, os.path.join(run_dir, f'fakes{cur_nimg//1000:06d}.png'), drange=[-1,1], grid_size=grid_size)
+            images = torch.cat([G_ema(z=z, c=c, noise_mode='const').cpu() for z, c in zip(grid_z, grid_c1)]).numpy()
+            wandb_imgs = (images.transpose(0, 2, 3, 1) * 127.5 + 128).clip(0, 255).astype(np.uint8)
+            wandb.log({'gen_imgs1':[wandb.Image(img) for img in wandb_imgs[:8]]}, step=cur_nimg)
+            save_image_grid(images, os.path.join(run_dir, f'fakes1{cur_nimg//1000:06d}.png'), drange=[-1,1], grid_size=grid_size)
 
         # Save network snapshot.
         snapshot_pkl = None
@@ -574,6 +594,12 @@ def training_loop(
                     metric_main.report_metric(result_dict, run_dir=run_dir, snapshot_pkl=snapshot_pkl)
                     wandb.log(result_dict, step=cur_nimg)
                 stats_metrics.update(result_dict.results)
+            ## assume only FID is used
+            if stats_metrics["fid50k_full"] < cur_metric:
+                cur_metric = stats_metrics["fid50k_full"]
+                early_stop = 0
+            else:
+                early_stop += 1
         del snapshot_data # conserve memory
 
         # Collect statistics.
@@ -594,8 +620,8 @@ def training_loop(
             stats_jsonl.write(json.dumps(fields) + '\n')
             stats_jsonl.flush()
         # if stats_tfevents is not None:
-        global_step = int(cur_nimg / 1e3)
-        walltime = timestamp - start_time
+        # global_step = int(cur_nimg / 1e3)
+        # walltime = timestamp - start_time
         for name, value in stats_dict.items():
             # stats_tfevents.add_scalar(name, value.mean, global_step=global_step, walltime=walltime)
             wandb.log({name: value.mean}, step=cur_nimg)
@@ -612,7 +638,14 @@ def training_loop(
         tick_start_time = time.time()
         maintenance_time = tick_start_time - tick_end_time
         wandb.log({'lambda (mse)': cur_lambda}, step=cur_nimg)
-        cur_lambda = min(0.9, cur_lambda + 1 / 50)
+        cur_lambda = min(0.9, cur_lambda + 1 / 100)
+        ## early stopping
+        if early_stop > 10:
+            done = True
+            if rank == 0:
+                print()
+                print(f"current step: {cur_nimg}")
+                print('Early stopping...')
         if done:
             break
 

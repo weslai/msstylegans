@@ -76,7 +76,7 @@ class StyleGAN2Loss(Loss):
                 # gen_logits = self.run_D(gen_img, gen_c, blur_sigma=blur_sigma)
                 gen_outputs_d = self.run_D(gen_img, gen_c, blur_sigma=blur_sigma)
                 gen_outputs_d = gen_outputs_d.float()
-                if gen_outputs_d.shape[1] > 21: ## Retinal
+                if gen_outputs_d.shape[1] > 15: ## Retinal
                     gen_img_pred = gen_outputs_d[:, 0]
                     gen_cmap_pred = gen_outputs_d[:, 1:5]
                     gen_discease_pred = gen_outputs_d[:, 5:-3]
@@ -100,13 +100,12 @@ class StyleGAN2Loss(Loss):
                 # loss_Gmain = torch.nn.functional.softplus(-gen_logits) # -log(sigmoid(gen_logits))
                 bce_loss = torch.nn.functional.binary_cross_entropy(
                     torch.sigmoid(gen_img_pred), torch.ones_like(gen_img_pred, requires_grad=True).to(self.device))
-                if gen_outputs_d.shape[1] > 20: ## Retinal
+                if gen_outputs_d.shape[1] > 15: ## Retinal
                     gen_c = gen_c.float()
                     mse_loss = torch.nn.functional.mse_loss(gen_cmap_pred, gen_c[:, 0:4])
-                    bce_discease_loss = 0
-                    for i in range(gen_discease_pred.shape[-1]):
-                        bce_discease_loss += torch.nn.functional.binary_cross_entropy(
-                            torch.sigmoid(gen_discease_pred[:, i]), gen_c[:, 4+i])
+                    bce_discease_loss = torch.nn.functional.binary_cross_entropy_with_logits(
+                        gen_discease_pred, gen_c[:, 4:-3]
+                    )
                     source = torch.where(gen_c[:, -3:] == 1)[1]
                     ce_source_loss = torch.nn.functional.cross_entropy(
                         gen_source_pred, source.long())
@@ -163,7 +162,7 @@ class StyleGAN2Loss(Loss):
                 # gen_logits = self.run_D(gen_img, gen_c, blur_sigma=blur_sigma, update_emas=True)
                 gen_outputs_d = self.run_D(gen_img, gen_c, blur_sigma=blur_sigma, update_emas=True)
                 gen_outputs_d = gen_outputs_d.float()
-                if gen_outputs_d.shape[1] > 21: ## Retinal
+                if gen_outputs_d.shape[1] > 15: ## Retinal
                     gen_img_pred = gen_outputs_d[:, 0]
                     gen_cmap_pred = gen_outputs_d[:, 1:5]
                     gen_discease_pred = gen_outputs_d[:, 5:-3]
@@ -186,13 +185,13 @@ class StyleGAN2Loss(Loss):
                 # loss_Dgen = torch.nn.functional.softplus(gen_logits) # -log(1 - sigmoid(gen_logits))
                 bce_loss = torch.nn.functional.binary_cross_entropy(
                     torch.sigmoid(gen_img_pred), torch.zeros_like(gen_img_pred, requires_grad=True).to(self.device))
-                if gen_outputs_d.shape[1] > 20: ## Retinal
+                if gen_outputs_d.shape[1] > 15: ## Retinal
                     gen_c = gen_c.float()
                     mse_loss = torch.nn.functional.mse_loss(gen_cmap_pred, gen_c[:, 0:4])
-                    bce_discease_loss = 0
-                    for i in range(gen_discease_pred.shape[-1]):
-                        bce_discease_loss += torch.nn.functional.binary_cross_entropy(
-                            torch.sigmoid(gen_discease_pred[:, i]), gen_c[:, 4+i])
+                    bce_discease_loss = torch.nn.functional.binary_cross_entropy_with_logits(
+                        gen_discease_pred, gen_c[:, 4:-3]
+                    )
+                    
                     source = torch.where(gen_c[:, -3:] == 1)[1]
                     ce_source_loss = torch.nn.functional.cross_entropy(
                         gen_source_pred, source.long())
@@ -231,7 +230,7 @@ class StyleGAN2Loss(Loss):
                 # real_logits = self.run_D(real_img_tmp, real_c, blur_sigma=blur_sigma)
                 real_outputs_d = self.run_D(real_img_tmp, real_c, blur_sigma=blur_sigma)
                 real_outputs_d = real_outputs_d.float()
-                if real_outputs_d.shape[1] > 21: ## Retinal
+                if real_outputs_d.shape[1] > 15: ## Retinal
                     real_img_pred = real_outputs_d[:, 0]
                     real_cmap_pred = real_outputs_d[:, 1:5]
                     real_discease_pred = real_outputs_d[:, 5:-3]
@@ -256,13 +255,12 @@ class StyleGAN2Loss(Loss):
                 if phase in ['Dmain', 'Dboth']:
                     bce_loss = torch.nn.functional.binary_cross_entropy(
                         torch.sigmoid(real_img_pred), torch.ones_like(real_img_pred, requires_grad=True).to(self.device))
-                    if real_outputs_d.shape[1] > 20: ## Retinal
+                    if real_outputs_d.shape[1] > 15: ## Retinal
                         real_c = real_c.float()
                         mse_loss = torch.nn.functional.mse_loss(real_cmap_pred, real_c[:, 0:4])
-                        bce_discease_loss = 0
-                        for i in range(real_discease_pred.shape[-1]):
-                            bce_discease_loss += torch.nn.functional.binary_cross_entropy(
-                                torch.sigmoid(real_discease_pred[:, i]), real_c[:, 4+i])
+                        bce_discease_loss = torch.nn.functional.binary_cross_entropy_with_logits(
+                            real_discease_pred, real_c[:, 4:-3]
+                        )
                         source = torch.where(real_c[:, -3:] == 1)[1]
                         ce_source_loss = torch.nn.functional.cross_entropy(
                             real_source_pred, source.long())
