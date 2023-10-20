@@ -666,7 +666,9 @@ def open_dataset(source, *, dataset_name: str = None,
                     "path", 
                     "age",  
                     "diastolic_bp",
-                    "spherical_power_left"
+                    "systolic_bp",
+                    "spherical_power_left",
+                    "cylindrical_power_left"
                 ]
             )
         ## adni

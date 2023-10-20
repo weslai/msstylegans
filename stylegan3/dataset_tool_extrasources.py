@@ -135,7 +135,8 @@ def open_image_zip(source, *, max_images: Optional[int]):
 def open_rfmid_retinal(
     annotation_path: str,
     max_images: Optional[int],
-    which_dataset: str
+    which_dataset: str,
+    covs: list = ["ID", "Disease_Risk", "DR", "ARMD", "MH", "MYA", "BRVO", "TSLN", "ODC", "ODP"]
 ):
     """
     use https://www.mdpi.com/2306-5729/6/2/14 as the dataset
@@ -144,7 +145,15 @@ def open_rfmid_retinal(
     ## load data
     assert annotation_path.split(".")[-1] == "csv"
     df = pd.read_csv(annotation_path)
-    df = df.dropna()
+    df = df[covs].dropna()
+
+    ### check the diseases
+    normal_df = df[df["Disease_Risk"] == 0]
+    disease_df = df[df["Disease_Risk"] == 1][covs[2:]]
+    ## delete no element in disease_df
+    normal_idxs = normal_df.index
+    disease_idxs = disease_df.loc[(disease_df != 0).any(axis=1)].index
+    df = df.loc[normal_idxs.union(disease_idxs)]
     ## add paths 
     temp_path = os.path.join("/", *annotation_path.split("/")[:-1])
     if which_dataset == "train":
@@ -423,7 +432,8 @@ def open_dataset(source, *,
             return open_rfmid_retinal(
                 annotation_path=annotation_path,
                 max_images=max_images,
-                which_dataset=which_dataset
+                which_dataset=which_dataset,
+                covs=["ID", "Disease_Risk", "DR", "ARMD", "MH", "MYA", "BRVO", "TSLN", "ODC", "ODP"]
             )
         ## retinal (kaggle eyepacs dataset)
         elif source.rstrip('/').endswith("diabetic_retinopathy"):
