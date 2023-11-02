@@ -134,9 +134,11 @@ def load_regression_model(
     Checkpoint
     Returns:
     """
-    return RegressionResnet.load_from_checkpoint(checkpoint_path)
+    net = RegressionResnet.load_from_checkpoint(checkpoint_path)
+    net.eval()
+    net.freeze()
+    return net
     
-
 ### -------------------- ###
 ### FOR IMAGE GENERATION ###
 ### -------------------- ###
