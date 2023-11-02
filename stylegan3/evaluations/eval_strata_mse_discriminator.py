@@ -1,5 +1,5 @@
 import os, sys
-from typing import Tuple, Union
+from typing import Tuple
 import click
 import json
 import numpy as np
@@ -9,24 +9,9 @@ sys.path.append("/dhc/home/wei-cheng.lai/projects/msstylegans")
 import dnnlib
 
 ### --- Own --- ###
-from eval_utils import calc_mean_scores
-from utils import load_generator, generate_images, load_regression_model
-from eval_dataset import MorphoMNISTDataset_causal
-from eval_dataset import UKBiobankMRIDataset2D
-from eval_dataset import UKBiobankRetinalDataset2D
-
-# --------------------------------------------------------------------------------------
-def parse_vec2(s: Union[str, Tuple[float, float]]) -> Tuple[float, float]:
-    '''Parse a floating point 2-vector of syntax 'a,b'.
-
-    Example:
-        '0,1' returns (0,1)
-    '''
-    if isinstance(s, tuple): return s
-    parts = s.split(',')
-    if len(parts) == 2:
-        return (float(parts[0]), float(parts[1]))
-    raise ValueError(f'cannot parse 2-vector {s}')
+from eval_utils import calc_mean_scores_disc
+from utils import load_generator, generate_images, load_regression_model, load_discriminator
+from eval_strata_mse import parse_vec2, load_dataset
 # --------------------------------------------------------------------------------------
 def calculate_loss(
     data_name: str,
@@ -38,9 +23,8 @@ def calculate_loss(
     dataset2: torch.utils.data.Dataset,
     source_gan: str,
     Gen,
-    regr_model0,
-    regr_model1,
-    regr_model2,
+    Disc,
+    regr_model,
     num_samples: int,
     batch_size: int,
     device: torch.device,
@@ -49,22 +33,14 @@ def calculate_loss(
     translate: Tuple[float, float],
     rotate: float
 ):
+    scores = [] ## mse, mae
+    strata_predictions = []
     c1_min, c1_max = covariates["c1_min"], covariates["c1_max"]
     c2_min, c2_max = covariates["c2_min"], covariates["c2_max"]
     c3_min, c3_max = covariates["c3_min"], covariates["c3_max"]
     strata_hist = covariates["strata_hist"]
-    scores_dict = {}
-    strata_predictions_dict = {}
-    regr_ml = {}
     for key, value in covariates["cov"].items():
-        scores_dict[key] = [] ## mse, mae
-        strata_predictions_dict[key] = []
-        if value == 0:
-            regr_ml[key] = regr_model0
-        elif value == 1:
-            regr_ml[key] = regr_model1
-        elif value == 2:
-            regr_ml[key] = regr_model2
+        cov = value
 
     ## strata loop
     for stra_c1 in strata_idxs:
@@ -152,83 +128,32 @@ def calculate_loss(
                             imgs = imgs.div(255).cpu().detach()
                         gen_imgs.append(batch_imgs)
                         real_imgs.append(imgs)
-                        cov_labels.append(l) ## all covariates
+                        cov_labels.append(l[:, cov].reshape(-1,1))
                     gen_imgs = torch.cat(gen_imgs, dim=0).repeat([1,1,1,1]).to(device)## (batch_size, channel, pixel, pixel)
                     real_imgs = torch.cat(real_imgs, dim=0).repeat([1,1,1,1]).to(device)## (batch_size, channel, pixel, pixel)
                     cov_labels = torch.cat(cov_labels, dim=0).to(device)
                     ### within strata, calculate mae, mse
-                    for key, value in covariates["cov"].items():
-                        cov = value
-                        ### separate the covariates and regression models
-                        mse_err, mae_err, corr, scores_df = calc_mean_scores(gen_imgs, real_imgs, 
-                                                                            cov_labels[:, cov].reshape(-1, 1),
-                                                                            regr_ml[key],
-                                                                            batch_size=64)
-                        print(f"strata: {cur_c1}, {cur_c2}, {cur_c3}, MSE: {mse_err}, MAE: {mae_err}, CORR: {corr}")
-                        ### save the evaluation analysis to a json file
-                        scores_dict[key].append(np.array([num_real, cur_c1[0], cur_c1[1], cur_c2[0], cur_c2[1],
-                            cur_c3[0], cur_c3[1], mse_err, mae_err, corr])) ##mse, mae, corr
-                        strata_predictions_dict[key].append(scores_df)
-    for key, value in covariates["cov"].items():
-        scores_dict[key] = np.stack(scores_dict[key], axis=0)
-
-    return scores_dict, strata_predictions_dict
+                    gen_mse, gen_mae, gen_corr, predict_df = calc_mean_scores_disc(gen_imgs, real_imgs, 
+                                                                                   cov_labels, cov, 
+                                                                                   regr_model, Disc,
+                                                                                   batch_size=64)
+                    print(f"strata: {cur_c1}, {cur_c2}, {cur_c3}, MSE: {gen_mse}, MAE: {gen_mae}, CORR: {gen_corr}")
+                    ### save the evaluation analysis to a json file
+                    scores.append(np.array([num_real, cur_c1[0], cur_c1[1], cur_c2[0], cur_c2[1],
+                        cur_c3[0], cur_c3[1], gen_mse, gen_mae, gen_corr]))
+                    strata_predictions.append(predict_df)
+    scores = np.stack(scores, axis=0)
+    return scores, strata_predictions
 # --------------------------------------------------------------------------------------
-def load_dataset(
-    dataset: str,
-    data_path1: str,
-    data_path2: str
-):
-    if dataset == "ukb":
-        ds1 = UKBiobankMRIDataset2D(data_name=dataset, 
-                                    path=data_path1, 
-                                    mode="test", 
-                                    use_labels=True,
-                                    xflip=False)
-        ds2 = UKBiobankMRIDataset2D(data_name=dataset, 
-                                    path=data_path2, 
-                                    mode="test", 
-                                    use_labels=True,
-                                    xflip=False)
-    elif dataset == "retinal":
-        ds1 = UKBiobankRetinalDataset2D(data_name=dataset, 
-                                    path=data_path1, 
-                                    mode="test", 
-                                    use_labels=True,
-                                    xflip=False)
-        ds2 = UKBiobankRetinalDataset2D(data_name=dataset, 
-                                    path=data_path2, 
-                                    mode="test", 
-                                    use_labels=True,
-                                    xflip=False)
-    elif dataset == "mnist-thickness-intensity-slant":
-        ds1 = MorphoMNISTDataset_causal(data_name=dataset, 
-                                    path=data_path1, 
-                                    mode="test", 
-                                    use_labels=True,
-                                    xflip=False,
-                                    include_numbers=True)
-        ds2 = MorphoMNISTDataset_causal(data_name=dataset, 
-                                    path=data_path2, 
-                                    mode="test", 
-                                    use_labels=True,
-                                    xflip=False,
-                                    include_numbers=True)
-    else:
-        raise ValueError(f"dataset {dataset} not found")
-    return ds1, ds2
-
-# --------------------------------------------------------------------------------------
-def run_stratified_mse(opts):
+def run_stratified_mse_discriminator(opts):
     dataset = opts.dataset
     assert dataset == "ukb" or dataset == "retinal" or dataset == "mnist-thickness-intensity-slant"
     num_bins = 3
     ## config
     network_pkl = opts.network_pkl
     metric_jsonl = opts.metric_jsonl
-    regr_model0 = opts.regr_model0
-    regr_model1 = opts.regr_model1
-    regr_model2 = opts.regr_model2
+    regr_model = opts.regr_model
+    cov = opts.cov
     data_path1 = opts.data_path1
     data_path2 = opts.data_path2
     source_gan = opts.source_gan
@@ -254,19 +179,21 @@ def run_stratified_mse(opts):
     strata_hist = {"c1": c1_hist, "c2": c2_hist, "c3": c3_hist} ## define strata
 
     ### cov
-    if dataset == "mnist-thickness-intensity-slant":
-        cov_dict = {"thickness": 0, "intensity": 1, "slant": 2}
-    elif dataset == "ukb":
-        cov_dict = {"age": 0, "ventricle": 1, "grey_matter": 2}
-    elif dataset == "retinal":
-        cov_dict = {"age": 0, "diastolic": 1, "spherical": 2}
+    if cov in ["thickness", "age"]:
+        cov_idx = 0
+    elif cov in ["intensity", "ventricle", "diastolic"]:
+        cov_idx = 1
+    elif cov in ["slant", "grey_matter", "spherical"]:
+        cov_idx = 2
+    else:
+        raise ValueError(f"covariate {cov} not found")
 
     covariates_info = dict(
         c1_min = c1_min, c1_max = c1_max,
         c2_min = c2_min, c2_max = c2_max,
         c3_min = c3_min, c3_max = c3_max,
         strata_hist = strata_hist,
-        cov = cov_dict
+        cov = {cov: cov_idx}
     )
     strata_distance = 1 ## distance between strata
     strata_idxs = [i for i in np.arange(0, num_bins, strata_distance)]
@@ -278,11 +205,14 @@ def run_stratified_mse(opts):
         metric_jsonl=metric_jsonl,
         use_cuda=True
     )
-    regr_model0 = load_regression_model(regr_model0).to(device)
-    regr_model1 = load_regression_model(regr_model1).to(device)
-    regr_model2 = load_regression_model(regr_model2).to(device)
+    Disc = load_discriminator(
+        network_pkl=network_pkl,
+        metric_jsonl=metric_jsonl,
+        use_cuda=True
+    )
+    regr_model = load_regression_model(regr_model).to(device)
     ### within strata (c1, c2, c3), calculate MSE, MAE
-    scores, predictions_dict = calculate_loss(
+    scores, predictions_df = calculate_loss(
         data_name = dataset,
         strata_idxs=strata_idxs,
         covariates=covariates_info,
@@ -292,9 +222,8 @@ def run_stratified_mse(opts):
         dataset2=ds2,
         source_gan=source_gan,
         Gen=Gen,
-        regr_model0=regr_model0,
-        regr_model1=regr_model1,
-        regr_model2=regr_model2,
+        Disc=Disc,
+        regr_model=regr_model,
         num_samples=num_samples,
         batch_size=batch_gen,
         device=device,
@@ -303,24 +232,22 @@ def run_stratified_mse(opts):
         translate=translate,
         rotate=rotate
     )
-    for key, value in covariates_info["cov"].items():
-        scores_df = pd.DataFrame(scores[key], columns=["num_samples",
-                                                "c1_min", "c1_max", 
-                                                "c2_min", "c2_max", 
-                                                "c3_min", "c3_max", 
-                                                "mse", "mae", "corr"])
-        scores_df.to_csv(os.path.join(outdir, f"stratified_loss_{key}.csv"), index=False)
-        for i in range(len(predictions_dict[key])):
-            predictions_dict[key][i].to_csv(os.path.join(outdir, f"stratified_predictions_{key}_stra{i}.csv"),
-                                    index=False)
+    scores_df = pd.DataFrame(scores, columns=["num_samples",
+                                            "c1_min", "c1_max", 
+                                            "c2_min", "c2_max", 
+                                            "c3_min", "c3_max", 
+                                            "gen_mse", "gen_mae", "gen_corr"])
+    scores_df.to_csv(os.path.join(outdir, f"stratified_loss_{cov}_disc.csv"), index=False)
+    for i in range(len(predictions_df)):
+        predictions_df[i].to_csv(os.path.join(outdir, f"stratified_predictions_{cov}_stra{i}_disc.csv"),
+                                 index=False)
 
 ## --------------------------- ##
 @click.command()
 @click.option('--network_specific', 'network_pkl', help='Network pickle filepath', default=None, required=False)
 @click.option('--network', 'metric_jsonl', help='Metric jsonl file for one training', default=None, required=False)
-@click.option('--regr_model0', 'regr_model0', help='Regression model', type=str, required=True)
-@click.option('--regr_model1', 'regr_model1', help='Regression model', type=str, required=True)
-@click.option('--regr_model2', 'regr_model2', help='Regression model', type=str, required=True)
+@click.option('--regr_model', 'regr_model', help='Regression model', type=str, required=True)
+@click.option('--cov', 'cov', help='Covariate', type=str, required=True)
 @click.option('--dataset', 'dataset', type=click.Choice(['mnist-thickness-intensity-slant', 'ukb',
                                                          'retinal', None]),
               default=None, show_default=True)
@@ -340,21 +267,20 @@ def run_stratified_mse(opts):
 def main(**kwargs):
     opts = dnnlib.EasyDict(kwargs)
     assert opts.network_pkl is not None or opts.metric_jsonl is not None
-    assert opts.regr_model0 is not None and opts.regr_model1 is not None and opts.regr_model2 is not None
+    assert opts.regr_model is not None
 
     os.makedirs(opts.outdir, exist_ok=True)
     config_dict = {
         "gen_specific": opts.network_pkl,
         "gen": opts.metric_jsonl,
-        "regr_model0": opts.regr_model0,
-        "regr_model1": opts.regr_model1,
-        "regr_model2": opts.regr_model2,
+        "regr_model": opts.regr_model,
+        "covariate": opts.cov,
         "dataset": opts.dataset, 
         "data_path1": opts.data_path1, "data_path2": opts.data_path2,
         "num_samples": opts.num_samples, "out_dir": opts.outdir}
     with open(os.path.join(opts.outdir, "strata_mse_config.json"), "w") as f:
         json.dump(config_dict, f)
 
-    run_stratified_mse(opts)
+    run_stratified_mse_discriminator(opts)
 if __name__ == "__main__":
     main()

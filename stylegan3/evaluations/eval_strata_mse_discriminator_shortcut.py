@@ -1,5 +1,5 @@
 import os, sys
-from typing import Tuple, Union
+from typing import Tuple
 import click
 import json
 import numpy as np
@@ -9,24 +9,9 @@ sys.path.append("/dhc/home/wei-cheng.lai/projects/msstylegans")
 import dnnlib
 
 ### --- Own --- ###
-from eval_utils import calc_mean_scores
-from utils import load_generator, generate_images, load_regression_model
-from eval_dataset import MorphoMNISTDataset_causal
-from eval_dataset import UKBiobankMRIDataset2D
-from eval_dataset import UKBiobankRetinalDataset2D
-
-# --------------------------------------------------------------------------------------
-def parse_vec2(s: Union[str, Tuple[float, float]]) -> Tuple[float, float]:
-    '''Parse a floating point 2-vector of syntax 'a,b'.
-
-    Example:
-        '0,1' returns (0,1)
-    '''
-    if isinstance(s, tuple): return s
-    parts = s.split(',')
-    if len(parts) == 2:
-        return (float(parts[0]), float(parts[1]))
-    raise ValueError(f'cannot parse 2-vector {s}')
+from eval_utils import calc_prediction_disc
+from utils import load_generator, generate_images, load_regression_model, load_discriminator
+from eval_strata_mse import parse_vec2, load_dataset
 # --------------------------------------------------------------------------------------
 def calculate_loss(
     data_name: str,
@@ -38,6 +23,7 @@ def calculate_loss(
     dataset2: torch.utils.data.Dataset,
     source_gan: str,
     Gen,
+    Disc,
     regr_model0,
     regr_model1,
     regr_model2,
@@ -65,7 +51,7 @@ def calculate_loss(
             regr_ml[key] = regr_model1
         elif value == 2:
             regr_ml[key] = regr_model2
-
+    
     ## strata loop
     for stra_c1 in strata_idxs:
         if stra_c1 == 0:
@@ -123,7 +109,7 @@ def calculate_loss(
                         all_c = source1_c + source2_c
                         all_img = source1_img + source2_img
                         l = torch.from_numpy(np.stack(all_c, axis=0)).to(device)
-                        imgs = torch.stack(all_img, dim=0).repeat([1,1,1,1]).to(device)
+                        imgs = torch.stack(all_img, dim=0).repeat([1,1,1,1]).to(device) ## real images
                         if source_gan != "multi":
                             if data_name == "mnist-thickness-intensity-slant":
                                 if source_gan == "source1":
@@ -139,10 +125,10 @@ def calculate_loss(
                         batch_imgs = generate_images(Gen, z, gen_l if source_gan != "multi" else l, 
                                                     truncation_psi, 
                                                     noise_mode, translate, rotate).permute(0,3,1,2)
-                        if batch_imgs.shape[1] == 3:
+                        if imgs.shape[1] == 3:
                             mu=[0.485, 0.456, 0.406],
                             std=[0.229, 0.224, 0.225]
-                            batch_imgs = batch_imgs.div(255).cpu().detach()
+                            batch_imgs = batch_imgs.div(255).cpu().detach()                        
                             imgs = imgs.div(255).cpu().detach()
                             for i in range(len(mu)):
                                 batch_imgs[:, i, :, :] = (batch_imgs[:, i, :, :] - mu[i]) / std[i]
@@ -153,6 +139,7 @@ def calculate_loss(
                         gen_imgs.append(batch_imgs)
                         real_imgs.append(imgs)
                         cov_labels.append(l) ## all covariates
+                    ## here we have synth images, real images, and covariates (real labels)
                     gen_imgs = torch.cat(gen_imgs, dim=0).repeat([1,1,1,1]).to(device)## (batch_size, channel, pixel, pixel)
                     real_imgs = torch.cat(real_imgs, dim=0).repeat([1,1,1,1]).to(device)## (batch_size, channel, pixel, pixel)
                     cov_labels = torch.cat(cov_labels, dim=0).to(device)
@@ -160,66 +147,26 @@ def calculate_loss(
                     for key, value in covariates["cov"].items():
                         cov = value
                         ### separate the covariates and regression models
-                        mse_err, mae_err, corr, scores_df = calc_mean_scores(gen_imgs, real_imgs, 
-                                                                            cov_labels[:, cov].reshape(-1, 1),
-                                                                            regr_ml[key],
-                                                                            batch_size=64)
-                        print(f"strata: {cur_c1}, {cur_c2}, {cur_c3}, MSE: {mse_err}, MAE: {mae_err}, CORR: {corr}")
+                        real_errs, gen_errs, corrs, scores_df = calc_prediction_disc(gen_imgs, real_imgs, 
+                                                                                   cov_labels[:, cov].reshape(-1, 1), 
+                                                                                   cov, regr_ml[key], Disc,
+                                                                                   batch_size=64)
+                        print("=====================================")
+                        print("cov_name: ", key)
+                        print(f"strata: {cur_c1}, {cur_c2}, {cur_c3}")
+                        print(f"Real Errors (MAE, MSE): {real_errs}, Gen Errors (MAE, MSE): {gen_errs}")
+                        print(f"Corrs (real, gen): {corrs}")
                         ### save the evaluation analysis to a json file
                         scores_dict[key].append(np.array([num_real, cur_c1[0], cur_c1[1], cur_c2[0], cur_c2[1],
-                            cur_c3[0], cur_c3[1], mse_err, mae_err, corr])) ##mse, mae, corr
+                            cur_c3[0], cur_c3[1], real_errs[0], real_errs[1], corrs[0], 
+                            gen_errs[0], gen_errs[1], corrs[1]])) ## MAE, MSE, Corr (real, gen)
                         strata_predictions_dict[key].append(scores_df)
     for key, value in covariates["cov"].items():
         scores_dict[key] = np.stack(scores_dict[key], axis=0)
 
     return scores_dict, strata_predictions_dict
 # --------------------------------------------------------------------------------------
-def load_dataset(
-    dataset: str,
-    data_path1: str,
-    data_path2: str
-):
-    if dataset == "ukb":
-        ds1 = UKBiobankMRIDataset2D(data_name=dataset, 
-                                    path=data_path1, 
-                                    mode="test", 
-                                    use_labels=True,
-                                    xflip=False)
-        ds2 = UKBiobankMRIDataset2D(data_name=dataset, 
-                                    path=data_path2, 
-                                    mode="test", 
-                                    use_labels=True,
-                                    xflip=False)
-    elif dataset == "retinal":
-        ds1 = UKBiobankRetinalDataset2D(data_name=dataset, 
-                                    path=data_path1, 
-                                    mode="test", 
-                                    use_labels=True,
-                                    xflip=False)
-        ds2 = UKBiobankRetinalDataset2D(data_name=dataset, 
-                                    path=data_path2, 
-                                    mode="test", 
-                                    use_labels=True,
-                                    xflip=False)
-    elif dataset == "mnist-thickness-intensity-slant":
-        ds1 = MorphoMNISTDataset_causal(data_name=dataset, 
-                                    path=data_path1, 
-                                    mode="test", 
-                                    use_labels=True,
-                                    xflip=False,
-                                    include_numbers=True)
-        ds2 = MorphoMNISTDataset_causal(data_name=dataset, 
-                                    path=data_path2, 
-                                    mode="test", 
-                                    use_labels=True,
-                                    xflip=False,
-                                    include_numbers=True)
-    else:
-        raise ValueError(f"dataset {dataset} not found")
-    return ds1, ds2
-
-# --------------------------------------------------------------------------------------
-def run_stratified_mse(opts):
+def run_stratified_discriminator_shortcuts(opts):
     dataset = opts.dataset
     assert dataset == "ukb" or dataset == "retinal" or dataset == "mnist-thickness-intensity-slant"
     num_bins = 3
@@ -278,6 +225,11 @@ def run_stratified_mse(opts):
         metric_jsonl=metric_jsonl,
         use_cuda=True
     )
+    Disc = load_discriminator(
+        network_pkl=network_pkl,
+        metric_jsonl=metric_jsonl,
+        use_cuda=True
+    )
     regr_model0 = load_regression_model(regr_model0).to(device)
     regr_model1 = load_regression_model(regr_model1).to(device)
     regr_model2 = load_regression_model(regr_model2).to(device)
@@ -292,6 +244,7 @@ def run_stratified_mse(opts):
         dataset2=ds2,
         source_gan=source_gan,
         Gen=Gen,
+        Disc=Disc,
         regr_model0=regr_model0,
         regr_model1=regr_model1,
         regr_model2=regr_model2,
@@ -303,15 +256,17 @@ def run_stratified_mse(opts):
         translate=translate,
         rotate=rotate
     )
+    ## here mae and mse are calculated within strata and between discriminators and regression models
     for key, value in covariates_info["cov"].items():
         scores_df = pd.DataFrame(scores[key], columns=["num_samples",
                                                 "c1_min", "c1_max", 
                                                 "c2_min", "c2_max", 
                                                 "c3_min", "c3_max", 
-                                                "mse", "mae", "corr"])
-        scores_df.to_csv(os.path.join(outdir, f"stratified_loss_{key}.csv"), index=False)
+                                                "real_mae", "real_mse", "real_corr",
+                                                "gen_mae", "gen_mse", "gen_corr"])
+        scores_df.to_csv(os.path.join(outdir, f"stratified_loss_{key}_shortcuts.csv"), index=False)
         for i in range(len(predictions_dict[key])):
-            predictions_dict[key][i].to_csv(os.path.join(outdir, f"stratified_predictions_{key}_stra{i}.csv"),
+            predictions_dict[key][i].to_csv(os.path.join(outdir, f"stratified_predictions_{key}_stra{i}_shortcuts.csv"),
                                     index=False)
 
 ## --------------------------- ##
@@ -350,11 +305,13 @@ def main(**kwargs):
         "regr_model1": opts.regr_model1,
         "regr_model2": opts.regr_model2,
         "dataset": opts.dataset, 
-        "data_path1": opts.data_path1, "data_path2": opts.data_path2,
-        "num_samples": opts.num_samples, "out_dir": opts.outdir}
+        "data_path1": opts.data_path1, 
+        "data_path2": opts.data_path2,
+        "num_samples": opts.num_samples, 
+        "out_dir": opts.outdir}
     with open(os.path.join(opts.outdir, "strata_mse_config.json"), "w") as f:
         json.dump(config_dict, f)
 
-    run_stratified_mse(opts)
+    run_stratified_discriminator_shortcuts(opts)
 if __name__ == "__main__":
     main()
