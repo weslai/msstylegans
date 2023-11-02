@@ -620,9 +620,9 @@ def training_loop(
         tick_start_time = time.time()
         maintenance_time = tick_start_time - tick_end_time
         wandb.log({'lambda (mse)': cur_lambda}, step=cur_nimg)
-        cur_lambda = min(0.9, cur_lambda + 1 / 50)
+        cur_lambda = min(1, cur_lambda + 1 / 50)
         ## early stopping
-        if early_stop > 15:
+        if early_stop > 5:
             done = True
             if rank == 0:
                 print()
