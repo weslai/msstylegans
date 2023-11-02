@@ -29,7 +29,7 @@ from skimage.util import crop
 def check_direction(img):
     ## crop the image
     img_crop = crop(img, ((50, 50), (50, 50), (0, 0)))
-    intensity_middle = img_crop[img_crop.shape[0] //2, :, 0]
+    intensity_middle = np.mean(img_crop[img_crop.shape[0] //2, :, :], axis=-1)
     max_intensity = np.max(intensity_middle)
     idx_max = np.where(intensity_middle == max_intensity)[0]
     if idx_max[0] < img_crop.shape[1] // 2:
@@ -227,7 +227,33 @@ def open_kaggle_eyepacs(
     def iterate_images():
         for idx, fname in enumerate(input_imgs):
             ## load image
-            img = np.array(PIL.Image.open(fname))
+            img_idxs = []
+            img_temp = np.array(PIL.Image.open(fname))
+            ## here crop the length of images and fill the black part of the width
+            width = img_temp.shape[0] // 2
+            img_mean = np.mean(img_temp, axis=-1)
+            for i in range(img_mean.shape[1] - 1):
+                rest = abs(img_mean[width, i+1] - img_mean[width, i])
+                if rest > 6:
+                    img_idxs.append(i)
+            if len(img_idxs) == 0:
+                img_new = img_temp[:, 180:-180, :]
+            else:
+                if img_temp.shape[1] - img_idxs[-1] > img_temp.shape[1] // 2 - img_idxs[-1]:
+                    img_new = img_temp[:, 180:-180, :]
+                else:
+                    img_new = img_temp[:, img_idxs[0]:img_idxs[-1], :]
+            long_side = max(img_new.shape[0], img_new.shape[1])
+            img = np.zeros((long_side, long_side, 3))
+            if img_new.shape[0] > img_new.shape[1]:
+                start = (img_new.shape[0] - img_new.shape[1]) // 2
+                img[:, start:(start+img_new.shape[1]), :] = img_new
+            else:
+                start = (img_new.shape[1] - img_new.shape[0]) // 2
+                img[start:(start+img_new.shape[0]), :, :] = img_new
+            ## to uint 8
+            img = img.astype(np.uint8)
+
             items = dict(
                 (key, value)
                     for key, value in dataset.loc[dataset["path"] == fname][covs[1:]].to_dict().items()
