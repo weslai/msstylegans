@@ -211,7 +211,8 @@ class ImageFolderDataset(Dataset):
             raise IOError('No image files found in the specified path')
 
         name = os.path.splitext(os.path.basename(self._path))[0]
-        raw_shape = [len(self._image_fnames)] + list(self._load_raw_image(0).shape) ## [Size, C, W, H]
+        self._load_raw_image(0) # Validate image format.
+        raw_shape = [len(self._image_fnames)] + list(self.image_arr.shape) ## [Size, C, W, H]
         if resolution is not None and (raw_shape[2] != resolution or raw_shape[3] != resolution):
             raise IOError('Image files do not match the specified resolution')
         super().__init__(name=name, raw_shape=raw_shape, **super_kwargs)
@@ -258,18 +259,13 @@ class ImageFolderDataset(Dataset):
     
     def __getitem__(self, idx):
         image = self._load_raw_image(self._raw_idx[idx])
-        assert isinstance(image, np.ndarray)
-        assert list(image.shape) == self.image_shape
-        assert image.dtype == np.uint8
-        if self._xflip[idx]:
-            assert image.ndim == 3 # CHW
-            image = image[:, :, ::-1]
-        image = image.transpose(1, 2, 0) # CHW => HWC
-        if image.shape[-1] == 3:
+        self.image_arr = self.image_arr.transpose(1, 2, 0) # CHW => HWC
+        if self.image_arr.shape[-1] == 3:
+        # if image.shape[-1] == 3:
             if self._mode == "train":
                 compose = transforms.Compose([
-                    # transforms..RandomRotation(degrees=15),
-                    # transforms.RandomHorizontalFlip(p=0.3),
+                    transforms.RandomRotation(degrees=90),
+                    transforms.RandomHorizontalFlip(p=0.3),
                     transforms.ToTensor(),
                     transforms.Normalize(
                         mean=[0.485, 0.456, 0.406],
@@ -286,6 +282,16 @@ class ImageFolderDataset(Dataset):
                     normalize
                 ])
         else:
+            if image.ndim == 2:
+                image = image[:, :, np.newaxis] # HW => HWC
+            image = image.transpose(2, 0, 1) # HWC => CHW
+            assert isinstance(image, np.ndarray)
+            assert list(image.shape) == self.image_shape
+            assert image.dtype == np.uint8
+            if self._xflip[idx]:
+                assert image.ndim == 3 # CHW
+                image = image[:, :, ::-1]
+            image = image.transpose(1, 2, 0) # CHW => HWC
             if self._mode == "train":
                 compose = transforms.Compose([
                     # transforms.RandomRotation(degrees=15),
@@ -302,15 +308,19 @@ class ImageFolderDataset(Dataset):
         if self.data_name in ["adni", "ukb"]:
             path = os.path.join(self._path, fname)
             image = nib.load(path).get_fdata().astype(np.uint8)
+            self.image_arr = image.copy()
         else:
             with self._open_file(fname) as f:
                 if pyspng is not None and self._file_ext(fname) == '.png':
                     image = pyspng.load(f.read())
+                    self.image_arr = image.copy()
                 else:
-                    image = np.array(PIL.Image.open(f))
-        if image.ndim == 2:
-            image = image[:, :, np.newaxis] # HW => HWC
-        image = image.transpose(2, 0, 1) # HWC => CHW
+                    # self.image_arr = np.array(PIL.Image.open(f))
+                    image = PIL.Image.open(f)
+                    self.image_arr = np.array(image)
+                    if self.image_arr.ndim == 2:
+                        self.image_arr = self.image_arr[:, :, np.newaxis] # HW => HWC
+                    self.image_arr = self.image_arr.transpose(2, 0, 1) # HWC => CHW
         return image
 
     def _load_raw_labels(self):
@@ -1089,5 +1099,5 @@ def get_settings(dataset: str):
     elif dataset == "adni":
         log_volumes_source1, log_volumes_source2 = False, False
     elif dataset == "retinal":
-        log_volumes_source1, log_volumes_source2 = True, True
+        log_volumes_source1, log_volumes_source2 = False, False
     return log_volumes_source1, log_volumes_source2

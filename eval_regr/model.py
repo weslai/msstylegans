@@ -1,5 +1,6 @@
 import torch
 import torchvision
+# from torchvision.models import ResNet50_Weights
 import torch.nn.functional as F
 from pytorch_lightning import LightningModule
 from torch.optim.lr_scheduler import OneCycleLR
@@ -8,7 +9,10 @@ from torch.optim.lr_scheduler import OneCycleLR
 def create_model(ch_in: int = 1):
     # model = torchvision.models.resnet18(pretrained=True)
     # model = torchvision.models.resnet34(pretrained=True)
-    model = torchvision.models.resnet50(pretrained=True)
+    # model = torchvision.models.resnet50(pretrained=True)
+    
+    # model = torchvision.models.resnet50(weights=ResNet50_Weights.IMAGENET1K_V2)
+    model = torchvision.models.resnet101(pretrained=False)
     # model = timm.create_model('resnet34', pretrained=True, in_chans=1)
     if ch_in != 3:
         model.conv1 = torch.nn.Conv2d(ch_in, 64, kernel_size=7, stride=2, padding=3, bias=False)
@@ -43,8 +47,8 @@ class RegressionResnet(LightningModule):
         y_hat_s2 = self.forward(x2.float())
         y = torch.stack([y1, y2])
         y_hat = torch.stack([y_hat_s1, y_hat_s2])
-        # loss = F.mse_loss(y_hat, y, reduction="mean")
-        loss = F.l1_loss(y_hat, y, reduction="mean")
+        loss = F.mse_loss(y_hat, y, reduction="mean")
+        # loss = F.l1_loss(y_hat, y, reduction="mean")
         self.log("train_loss", loss)
         return loss
         
@@ -59,8 +63,8 @@ class RegressionResnet(LightningModule):
         y_hat_s2 = self.forward(x2.float())
         y = torch.stack([y1, y2])
         y_hat = torch.stack([y_hat_s1, y_hat_s2])
-        # loss = F.mse_loss(y_hat, y)
-        loss = F.l1_loss(y_hat, y)
+        loss = F.mse_loss(y_hat, y)
+        # loss = F.l1_loss(y_hat, y)
 
         if stage:
             self.log(f"{stage}_loss", loss, prog_bar=True)
