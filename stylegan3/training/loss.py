@@ -155,19 +155,20 @@ class StyleGAN2Loss(Loss):
                 # loss_Dgen = torch.nn.functional.softplus(gen_logits) # -log(1 - sigmoid(gen_logits))
                 bce_loss = torch.nn.functional.binary_cross_entropy(
                     torch.sigmoid(gen_img_pred), torch.zeros_like(gen_img_pred, requires_grad=True).to(self.device))
-                if gen_outputs_d.shape[1] > 3:
-                    mse_loss = torch.nn.functional.mse_loss(gen_cmap_pred, gen_c[:, :2])
-                    gen_digits = torch.where(gen_c[:, 2:] == 1)[1]
-                    ce_loss = torch.nn.functional.cross_entropy(gen_digit_pred, gen_digits.long())
-                    training_stats.report('Loss/scores/fake_labels', mse_loss)
-                    training_stats.report('Loss/scores/fake_digits(ce loss)', ce_loss)
-                    loss_Dgen = bce_loss + (mse_loss + ce_loss) * lambda_
-                elif gen_outputs_d.shape[1] > 1:
-                    mse_loss = torch.nn.functional.mse_loss(gen_cmap_pred, gen_c)
-                    training_stats.report('Loss/scores/fake_labels', mse_loss)
-                    loss_Dgen = bce_loss + mse_loss * lambda_
-                else:
-                    loss_Dgen = bce_loss
+                # if gen_outputs_d.shape[1] > 3:
+                #     mse_loss = torch.nn.functional.mse_loss(gen_cmap_pred, gen_c[:, :2])
+                #     gen_digits = torch.where(gen_c[:, 2:] == 1)[1]
+                #     ce_loss = torch.nn.functional.cross_entropy(gen_digit_pred, gen_digits.long())
+                #     training_stats.report('Loss/scores/fake_labels', mse_loss)
+                #     training_stats.report('Loss/scores/fake_digits(ce loss)', ce_loss)
+                #     loss_Dgen = bce_loss + (mse_loss + ce_loss) * lambda_
+                # elif gen_outputs_d.shape[1] > 1:
+                #     mse_loss = torch.nn.functional.mse_loss(gen_cmap_pred, gen_c)
+                #     training_stats.report('Loss/scores/fake_labels', mse_loss)
+                #     loss_Dgen = bce_loss + mse_loss * lambda_
+                # else:
+                #     loss_Dgen = bce_loss
+                loss_Dgen = bce_loss
             with torch.autograd.profiler.record_function('Dgen_backward'):
                 loss_Dgen.mean().mul(gain).backward()
 
