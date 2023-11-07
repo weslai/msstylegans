@@ -26,13 +26,13 @@ def main(
     num_s1 = df_s1["num_samples"].values
     num_s2 = df_s2["num_samples"].values
 
-    mae_ms = df_ms["gen_mae"].values
-    mae_s1 = df_s1["gen_mae"].values
-    mae_s2 = df_s2["gen_mae"].values
+    mae_ms = df_ms["mae"].values
+    mae_s1 = df_s1["mae"].values
+    mae_s2 = df_s2["mae"].values
 
-    mse_ms = df_ms["gen_mse"].values
-    mse_s1 = df_s1["gen_mse"].values
-    mse_s2 = df_s2["gen_mse"].values
+    mse_ms = df_ms["mse"].values
+    mse_s1 = df_s1["mse"].values
+    mse_s2 = df_s2["mse"].values
 
     w_mae_ms = mae_ms * (num_ms / np.sum(num_ms))
     w_mae_s1 = mae_s1 * (num_s1 / np.sum(num_s1))
@@ -79,9 +79,9 @@ def main(
                                          std_mae_ms, std_mae_s1, std_mae_s2,
                                          avg_mse_ms, avg_mse_s1, avg_mse_s2,
                                          std_mse_ms, std_mse_s1, std_mse_s2]).reshape(1,-1),
-                                         columns=["ms_mae", "s1_mae", "s2_mae",
+                                         columns=["ms_mae_mu", "s1_mae_mu", "s2_mae_mu",
                                                 "ms_mae_std", "s1_mae_std", "s2_mae_std",
-                                                "ms_mse", "s1_mse", "s2_mse",
+                                                "ms_mse_mu", "s1_mse_mu", "s2_mse_mu",
                                                 "ms_mse_std", "s1_mse_std", "s2_mse_std"])
 
     fname_ms = os.path.join(save_dir, "ms_stratified_weighted.csv")

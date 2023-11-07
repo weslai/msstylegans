@@ -159,27 +159,169 @@ def calc_fid_score(
 
 
 def calc_mean_scores(
-    img_dist,
+    genimg_dist,
+    realimg_dist,
     true_labels,
     regr_model,
     batch_size=64
 ):
+    """
+    This func is to calculate the mean scores of the predictions of real images and the prediction of synthetic images 
+    from the regression model. After this, the mae and mse scores are calculated between the two predictions.
+    """
     _ = torch.manual_seed(64)
-    num_samples = img_dist.shape[0]
-    predictions = []
+    assert len(genimg_dist) == len(realimg_dist) == len(true_labels)
+    num_samples = genimg_dist.shape[0]
+    gen_predictions = []
+    real_predictions = []
     for i in range(0, num_samples, batch_size):
-        img_batch = img_dist[i:min(i+batch_size, num_samples)]
-        score = regr_model(img_batch.float()).cpu().detach()
-        predictions.append(score)
-    predictions = torch.concat(predictions, axis=0).to(device=true_labels.device)
+        genimg_batch = genimg_dist[i:min(i+batch_size, num_samples)]
+        realimg_batch = realimg_dist[i:min(i+batch_size, num_samples)]
+        gen_score = regr_model(genimg_batch.float()).cpu().detach()
+        real_score = regr_model(realimg_batch.float()).cpu().detach()
+        gen_predictions.append(gen_score)
+        real_predictions.append(real_score)
+    gen_predictions = torch.concat(gen_predictions, axis=0).to(device=true_labels.device)
+    real_predictions = torch.concat(real_predictions, axis=0).to(device=true_labels.device)
 
     mse = MeanSquaredError().to(device=true_labels.device)
-    mse_score = mse(predictions, true_labels).cpu().detach().numpy()
+    mse_score = mse(gen_predictions, real_predictions).cpu().detach().numpy()
     mae = MeanAbsoluteError().to(device=true_labels.device)
-    mae_score = mae(predictions, true_labels).cpu().detach().numpy()
+    mae_score = mae(gen_predictions, real_predictions).cpu().detach().numpy()
 
-    predictions_df = pd.DataFrame(predictions.numpy())
-    true_labels_df = pd.DataFrame(true_labels.numpy())
-    corr, _ = stats.pearsonr(predictions_df.values.flatten(), true_labels_df.values.flatten())
+    gen_predictions = gen_predictions.cpu().detach().numpy()
+    real_predictions = real_predictions.cpu().detach().numpy()
+    true_labels = true_labels.cpu().detach().numpy()
+    gen_predictions_df = pd.DataFrame(gen_predictions, columns=["gen_predict"])
+    real_predictions_df = pd.DataFrame(real_predictions, columns=["real_predict"])
+    true_labels_df = pd.DataFrame(true_labels, columns=["labels"])
 
-    return mse_score, mae_score, corr
+    corr, _ = stats.pearsonr(gen_predictions_df.values.flatten(), real_predictions_df.values.flatten())
+
+    predictions_df = pd.concat([gen_predictions_df, real_predictions_df, true_labels_df], axis=1)
+    return mse_score, mae_score, corr, predictions_df
+
+def calc_mean_scores_disc(
+    genimg_dist,
+    realimg_dist,
+    true_labels,
+    covariance,
+    regr_model,
+    discriminator = None,
+    batch_size=64
+):
+    """
+    This func is to calculate the mean scores of the predictions of real images from the regression model 
+    and the predictions of generated images from the discriminator.
+
+    """
+    _ = torch.manual_seed(64)
+    assert len(genimg_dist) == len(realimg_dist) == len(true_labels)
+    num_samples = genimg_dist.shape[0]
+    gen_predictions = []
+    real_predictions = []
+    for i in range(0, num_samples, batch_size):
+        genimg_batch = genimg_dist[i:min(i+batch_size, num_samples)]
+        realimg_batch = realimg_dist[i:min(i+batch_size, num_samples)]
+        labels = true_labels[i:min(i+batch_size, num_samples)]
+
+        gen_score = discriminator(genimg_batch.float(), labels).cpu().detach()[:, covariance + 1]
+        real_score = regr_model(realimg_batch.float()).cpu().detach()
+        gen_predictions.append(gen_score.reshape(-1, 1))
+        real_predictions.append(real_score)
+    gen_predictions = torch.concat(gen_predictions, axis=0).to(device=true_labels.device)
+    real_predictions = torch.concat(real_predictions, axis=0).to(device=true_labels.device)
+
+    mse = MeanSquaredError().to(device=true_labels.device)
+    mse_score = mse(gen_predictions, real_predictions).cpu().detach().numpy()
+    mae = MeanAbsoluteError().to(device=true_labels.device)
+    mae_score = mae(gen_predictions, real_predictions).cpu().detach().numpy()
+
+    gen_predictions = gen_predictions.cpu().detach().numpy()
+    real_predictions = real_predictions.cpu().detach().numpy()
+    gen_predictions_df = pd.DataFrame(gen_predictions, columns=["gen_predict"])
+    real_predictions_df = pd.DataFrame(real_predictions, columns=["real_predict"])
+    corr, _ = stats.pearsonr(gen_predictions_df.values.flatten(), real_predictions_df.values.flatten())
+
+    predictions_df = pd.concat([gen_predictions_df, real_predictions_df], axis=1)
+    return mse_score, mae_score, corr, predictions_df
+
+def calc_prediction_disc(
+    disc_gen_img_dist,
+    disc_real_img_dist,
+    genimg_dist,
+    realimg_dist,
+    true_labels,
+    covariance,
+    regr_model,
+    discriminator = None,
+    batch_size=64
+):
+    """
+    This func is to calculate the mean scores of the predictions of real images and synthetic images from the regression model 
+    and the same predictions from the discriminator.
+
+    This is to check whether the discriminator from GANs can be used as a regression model or
+    at least predict similar results as the regression model.
+    """
+    _ = torch.manual_seed(64)
+    assert len(genimg_dist) == len(realimg_dist) == len(true_labels)
+    num_samples = genimg_dist.shape[0]
+    gen_discriminations = []
+    real_discriminations = []
+    gen_predictions = []
+    real_predictions = []
+    for i in range(0, num_samples, batch_size):
+        disc_genimg_batch = disc_gen_img_dist[i:min(i+batch_size, num_samples)]
+        disc_realimg_batch = disc_real_img_dist[i:min(i+batch_size, num_samples)]
+        genimg_batch = genimg_dist[i:min(i+batch_size, num_samples)]
+        realimg_batch = realimg_dist[i:min(i+batch_size, num_samples)]
+        labels = true_labels[i:min(i+batch_size, num_samples)]
+        ## gen scores
+        gen_disc = discriminator(disc_genimg_batch.float(), labels).cpu().detach()[:, covariance + 1]
+        gen_pred = regr_model(genimg_batch.float()).cpu().detach()
+        ## real scores
+        real_disc = discriminator(disc_realimg_batch.float(), labels).cpu().detach()[:, covariance + 1]
+        real_pred = regr_model(realimg_batch.float()).cpu().detach()
+        
+        gen_discriminations.append(gen_disc.reshape(-1, 1))
+        gen_predictions.append(gen_pred)
+        real_discriminations.append(real_disc.reshape(-1, 1))
+        real_predictions.append(real_pred)
+
+    gen_discriminations = torch.concat(gen_discriminations, axis=0).to(device=true_labels.device)
+    gen_predictions = torch.concat(gen_predictions, axis=0).to(device=true_labels.device)
+    real_discriminations = torch.concat(real_discriminations, axis=0).to(device=true_labels.device)
+    real_predictions = torch.concat(real_predictions, axis=0).to(device=true_labels.device)
+    ## real scores
+    mse = MeanSquaredError().to(device=true_labels.device)
+    mse_real = mse(real_discriminations, real_predictions).cpu().detach().numpy()
+    mae = MeanAbsoluteError().to(device=true_labels.device)
+    mae_real = mae(real_discriminations, real_predictions).cpu().detach().numpy()
+    ## gen scores
+    mse = MeanSquaredError().to(device=true_labels.device)
+    mse_gen = mse(gen_discriminations, gen_predictions ).cpu().detach().numpy()
+    mae = MeanAbsoluteError().to(device=true_labels.device)
+    mae_gen = mae(gen_discriminations, gen_predictions).cpu().detach().numpy()
+
+    real_discriminations = real_discriminations.cpu().detach().numpy()
+    real_predictions = real_predictions.cpu().detach().numpy()
+    gen_discriminations = gen_discriminations.cpu().detach().numpy()
+    gen_predictions = gen_predictions.cpu().detach().numpy()
+    true_labels = true_labels.cpu().detach().numpy()
+
+    real_discriminations_df = pd.DataFrame(real_discriminations, columns=["real_disc"])
+    real_predictions_df = pd.DataFrame(real_predictions, columns=["real_predict"])
+    gen_discriminations_df = pd.DataFrame(gen_discriminations, columns=["gen_disc"])
+    gen_predictions_df = pd.DataFrame(gen_predictions, columns=["gen_predict"])
+    true_labels_df = pd.DataFrame(true_labels, columns=["labels"])
+
+    real_corr, _ = stats.pearsonr(real_discriminations_df.values.flatten(),
+                             real_predictions_df.values.flatten())
+    gen_corr, _ = stats.pearsonr(gen_discriminations_df.values.flatten(),
+                             gen_predictions_df.values.flatten())
+
+    scores_df = pd.concat([real_discriminations_df, real_predictions_df, 
+                           gen_discriminations_df, gen_predictions_df,
+                           true_labels_df], axis=1)
+    return (mae_real, mse_real), (mae_gen, mse_gen), (real_corr, gen_corr), scores_df ## (real, gen), scores_df
