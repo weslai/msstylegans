@@ -83,15 +83,15 @@ class StyleGAN2Loss(Loss):
                     gen_source_pred = gen_outputs_d[:, -3:]
                 elif gen_outputs_d.shape[1] > 1: ## MRI
                     gen_img_pred = gen_outputs_d[:, 0]
-                    gen_cmap_pred = gen_outputs_d[:, 1:4] ## cmap prediction
-                    gen_cdr_pred = gen_outputs_d[:, 4:7] ## cdr prediction
-                    gen_apoe_pred = gen_outputs_d[:, 7:10] ## apoe prediction
-                    gen_source_pred = gen_outputs_d[:, 10:] ## source prediction
+                    gen_cmap_pred = gen_outputs_d[:, 1:6] ## cmap prediction
+                    # gen_cdr_pred = gen_outputs_d[:, 4:7] ## cdr prediction
+                    gen_apoe_pred = gen_outputs_d[:, 6:-3] ## apoe prediction
+                    gen_source_pred = gen_outputs_d[:, -3:] ## source prediction
                 else:
                     gen_img_pred = gen_outputs_d
                     gen_cmap_pred = None
                     gen_discease_pred = None
-                    gen_cdr_pred = None
+                    # gen_cdr_pred = None
                     gen_source_pred = None
                 training_stats.report('Loss/scores/fake', gen_img_pred)
                 training_stats.report('Loss/signs/fake', gen_img_pred.sign())
@@ -115,21 +115,21 @@ class StyleGAN2Loss(Loss):
                     loss_Gmain = bce_loss + (mse_loss + bce_discease_loss + ce_source_loss) * lambda_
                 elif gen_outputs_d.shape[1] > 1: ## mri
                     gen_c = gen_c.float()
-                    mse_loss = torch.nn.functional.mse_loss(gen_cmap_pred, gen_c[:,0:3])
-                    cdr = torch.where(gen_c[:, 3:6] == 1)[1]
-                    ce_cdr_loss = torch.nn.functional.cross_entropy(
-                        gen_cdr_pred, cdr.long())
-                    apoe = torch.where(gen_c[:, 6:9] == 1)[1]
+                    mse_loss = torch.nn.functional.mse_loss(gen_cmap_pred, gen_c[:,0:5])
+                    # cdr = torch.where(gen_c[:, 3:6] == 1)[1]
+                    # ce_cdr_loss = torch.nn.functional.cross_entropy(
+                    #     gen_cdr_pred, cdr.long())
+                    apoe = torch.where(gen_c[:, 5:8] == 1)[1]
                     ce_apoe_loss = torch.nn.functional.cross_entropy(
                         gen_apoe_pred, apoe.long())
                     source = torch.where(gen_c[:, -3:] == 1)[1]
                     ce_source_loss = torch.nn.functional.cross_entropy(
                         gen_source_pred, source.long())
                     training_stats.report('Loss/scores/fake_labels', mse_loss)
-                    training_stats.report('Loss/scores/fake_cdr (ce loss)', ce_cdr_loss)
+                    # training_stats.report('Loss/scores/fake_cdr (ce loss)', ce_cdr_loss)
                     training_stats.report('Loss/scores/fake_apoe (ce loss)', ce_apoe_loss)
                     training_stats.report('Loss/scores/fake_source', ce_source_loss)
-                    loss_Gmain = bce_loss + (mse_loss + ce_cdr_loss + ce_apoe_loss + ce_source_loss) * lambda_
+                    loss_Gmain = bce_loss + (mse_loss + ce_apoe_loss + ce_source_loss) * lambda_
                 else:
                     loss_Gmain = bce_loss
                 training_stats.report('Loss/G/loss', loss_Gmain)
@@ -169,14 +169,14 @@ class StyleGAN2Loss(Loss):
                     gen_source_pred = gen_outputs_d[:, -3:]
                 elif gen_outputs_d.shape[1] > 1: ## MRI
                     gen_img_pred = gen_outputs_d[:, 0]
-                    gen_cmap_pred = gen_outputs_d[:, 1:4] ## cmap prediction
-                    gen_cdr_pred = gen_outputs_d[:, 4:7] ## cdr prediction
-                    gen_apoe_pred = gen_outputs_d[:, 7:10] ## apoe prediction
-                    gen_source_pred = gen_outputs_d[:, 10:] ## source prediction
+                    gen_cmap_pred = gen_outputs_d[:, 1:6] ## cmap prediction
+                    # gen_cdr_pred = gen_outputs_d[:, 4:7] ## cdr prediction
+                    gen_apoe_pred = gen_outputs_d[:, 6:-3] ## apoe prediction
+                    gen_source_pred = gen_outputs_d[:, -3:] ## source prediction
                 else:
                     gen_img_pred = gen_outputs_d
                     gen_cmap_pred = None
-                    gen_cdr_pred = None
+                    # gen_cdr_pred = None
                     gen_source_pred = None
                 training_stats.report('Loss/scores/fake', gen_img_pred)
                 training_stats.report('Loss/signs/fake', gen_img_pred.sign())
@@ -185,39 +185,40 @@ class StyleGAN2Loss(Loss):
                 # loss_Dgen = torch.nn.functional.softplus(gen_logits) # -log(1 - sigmoid(gen_logits))
                 bce_loss = torch.nn.functional.binary_cross_entropy(
                     torch.sigmoid(gen_img_pred), torch.zeros_like(gen_img_pred, requires_grad=True).to(self.device))
-                if gen_outputs_d.shape[1] > 15: ## Retinal
-                    gen_c = gen_c.float()
-                    mse_loss = torch.nn.functional.mse_loss(gen_cmap_pred, gen_c[:, 0:4])
-                    bce_discease_loss = torch.nn.functional.binary_cross_entropy_with_logits(
-                        gen_discease_pred, gen_c[:, 4:-3]
-                    )
+                # if gen_outputs_d.shape[1] > 15: ## Retinal
+                #     gen_c = gen_c.float()
+                #     mse_loss = torch.nn.functional.mse_loss(gen_cmap_pred, gen_c[:, 0:4])
+                #     bce_discease_loss = torch.nn.functional.binary_cross_entropy_with_logits(
+                #         gen_discease_pred, gen_c[:, 4:-3]
+                #     )
                     
-                    source = torch.where(gen_c[:, -3:] == 1)[1]
-                    ce_source_loss = torch.nn.functional.cross_entropy(
-                        gen_source_pred, source.long())
-                    training_stats.report('Loss/scores/fake_labels', mse_loss)
-                    training_stats.report('Loss/scores/fake_discease (bce loss)', bce_discease_loss)
-                    training_stats.report('Loss/scores/fake_source', ce_source_loss)
-                    loss_Dgen = bce_loss + (mse_loss + bce_discease_loss + ce_source_loss) * lambda_
-                elif gen_outputs_d.shape[1] > 1: ## mri
-                    gen_c = gen_c.float()
-                    mse_loss = torch.nn.functional.mse_loss(gen_cmap_pred, gen_c[:,0:3])
-                    cdr = torch.where(gen_c[:, 3:6] == 1)[1]
-                    ce_cdr_loss = torch.nn.functional.cross_entropy(
-                        gen_cdr_pred, cdr.long())
-                    apoe = torch.where(gen_c[:, 6:9] == 1)[1]
-                    ce_apoe_loss = torch.nn.functional.cross_entropy(
-                        gen_apoe_pred, apoe.long())
-                    source = torch.where(gen_c[:, -3:] == 1)[1]
-                    ce_source_loss = torch.nn.functional.cross_entropy(
-                        gen_source_pred, source.long())
-                    training_stats.report('Loss/scores/fake_labels', mse_loss)
-                    training_stats.report('Loss/scores/fake_cdr (ce loss)', ce_cdr_loss)
-                    training_stats.report('Loss/scores/fake_apoe (ce loss)', ce_apoe_loss)
-                    training_stats.report('Loss/scores/fake_source', ce_source_loss)
-                    loss_Dgen = bce_loss + (mse_loss + ce_cdr_loss + ce_apoe_loss + ce_source_loss) * lambda_
-                else:
-                    loss_Dgen = bce_loss
+                #     source = torch.where(gen_c[:, -3:] == 1)[1]
+                #     ce_source_loss = torch.nn.functional.cross_entropy(
+                #         gen_source_pred, source.long())
+                #     training_stats.report('Loss/scores/fake_labels', mse_loss)
+                #     training_stats.report('Loss/scores/fake_discease (bce loss)', bce_discease_loss)
+                #     training_stats.report('Loss/scores/fake_source', ce_source_loss)
+                #     loss_Dgen = bce_loss + (mse_loss + bce_discease_loss + ce_source_loss) * lambda_
+                # elif gen_outputs_d.shape[1] > 1: ## mri
+                #     gen_c = gen_c.float()
+                #     mse_loss = torch.nn.functional.mse_loss(gen_cmap_pred, gen_c[:,0:3])
+                #     cdr = torch.where(gen_c[:, 3:6] == 1)[1]
+                #     ce_cdr_loss = torch.nn.functional.cross_entropy(
+                #         gen_cdr_pred, cdr.long())
+                #     apoe = torch.where(gen_c[:, 6:9] == 1)[1]
+                #     ce_apoe_loss = torch.nn.functional.cross_entropy(
+                #         gen_apoe_pred, apoe.long())
+                #     source = torch.where(gen_c[:, -3:] == 1)[1]
+                #     ce_source_loss = torch.nn.functional.cross_entropy(
+                #         gen_source_pred, source.long())
+                #     training_stats.report('Loss/scores/fake_labels', mse_loss)
+                #     training_stats.report('Loss/scores/fake_cdr (ce loss)', ce_cdr_loss)
+                #     training_stats.report('Loss/scores/fake_apoe (ce loss)', ce_apoe_loss)
+                #     training_stats.report('Loss/scores/fake_source', ce_source_loss)
+                #     loss_Dgen = bce_loss + (mse_loss + ce_cdr_loss + ce_apoe_loss + ce_source_loss) * lambda_
+                # else:
+                #     loss_Dgen = bce_loss
+                loss_Dgen = bce_loss
             with torch.autograd.profiler.record_function('Dgen_backward'):
                 loss_Dgen.mean().mul(gain).backward()
 
@@ -237,14 +238,14 @@ class StyleGAN2Loss(Loss):
                     real_source_pred = real_outputs_d[:, -3:]
                 elif real_outputs_d.shape[1] > 1: ## MRI
                     real_img_pred = real_outputs_d[:, 0]
-                    real_cmap_pred = real_outputs_d[:, 1:4] ## cmap prediction
-                    real_cdr_pred = real_outputs_d[:, 4:7] ## cdr prediction
-                    real_apoe_pred = real_outputs_d[:, 7:10] ## apoe prediction
-                    real_source_pred = real_outputs_d[:, 10:] ## source prediction
+                    real_cmap_pred = real_outputs_d[:, 1:6] ## cmap prediction
+                    # real_cdr_pred = real_outputs_d[:, 4:7] ## cdr prediction
+                    real_apoe_pred = real_outputs_d[:, 6:-3] ## apoe prediction
+                    real_source_pred = real_outputs_d[:, -3:] ## source prediction
                 else:
                     real_img_pred = real_outputs_d
                     real_cmap_pred = None
-                    real_cdr_pred = None
+                    # real_cdr_pred = None
                     real_source_pred = None
                 training_stats.report('Loss/scores/real', real_img_pred)
                 training_stats.report('Loss/signs/real', real_img_pred.sign())
@@ -267,17 +268,17 @@ class StyleGAN2Loss(Loss):
                         loss_Dreal = bce_loss + (mse_loss + bce_discease_loss + ce_source_loss) * lambda_
                     elif gen_outputs_d.shape[1] > 1: ## mri
                         real_c = real_c.float()
-                        mse_loss = torch.nn.functional.mse_loss(real_cmap_pred, real_c[:,0:3])
-                        cdr = torch.where(real_c[:, 3:6] == 1)[1]
-                        ce_cdr_loss = torch.nn.functional.cross_entropy(
-                            real_cdr_pred, cdr.long())
-                        apoe = torch.where(real_c[:, 6:9] == 1)[1]
+                        mse_loss = torch.nn.functional.mse_loss(real_cmap_pred, real_c[:,0:5])
+                        # cdr = torch.where(real_c[:, 3:6] == 1)[1]
+                        # ce_cdr_loss = torch.nn.functional.cross_entropy(
+                        #     real_cdr_pred, cdr.long())
+                        apoe = torch.where(real_c[:, 5:-3] == 1)[1]
                         ce_apoe_loss = torch.nn.functional.cross_entropy(
                             real_apoe_pred, apoe.long())
                         source = torch.where(real_c[:, -3:] == 1)[1]
                         ce_source_loss = torch.nn.functional.cross_entropy(
                             real_source_pred, source.long())
-                        loss_Dreal = bce_loss + (mse_loss + ce_cdr_loss + ce_apoe_loss + ce_source_loss) * lambda_
+                        loss_Dreal = bce_loss + (mse_loss + ce_apoe_loss + ce_source_loss) * lambda_
                     else:
                         loss_Dreal = bce_loss
                     training_stats.report('Loss/D/loss', loss_Dgen + loss_Dreal)

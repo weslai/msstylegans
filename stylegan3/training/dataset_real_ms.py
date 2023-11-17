@@ -484,7 +484,7 @@ class AdniMRIDataset2D(ImageFolderDataset):
     def __init__(
         self, 
         path, 
-        resolution=None,
+        resolution = None,
         mode: str = "train", ## ["train", "val", "test"]
         data_name: str = "adni",
         **super_kwargs
@@ -522,8 +522,8 @@ class AdniMRIDataset2D(ImageFolderDataset):
             for num, l in enumerate(trainlabels):
                 i = list(l[self.vars[0]].items())[0][0]
                 temp = [l[var][str(i)] for var in self.vars]
-                ## cdr 
-                temp[1] = 1 if temp[1] >= 1.0 else temp[1]
+                # ## cdr 
+                # temp[1] = 1 if temp[1] >= 1.0 else temp[1]
                 new_labels[num, :] = temp
             labels = new_labels
         model.update(
@@ -531,17 +531,24 @@ class AdniMRIDataset2D(ImageFolderDataset):
             age_std = np.std(labels[:, 0]),
             age_min = np.min(labels[:, 0]),
             age_max = np.max(labels[:, 0]),
-            cdr_unique = np.unique(labels[:, 1]),
+            # cdr_unique = np.unique(labels[:, 1]),
+            left_hippo_mu = np.mean(labels[:, 1]),
+            left_hippo_std = np.std(labels[:, 1]),
+            right_hippo_mu = np.mean(labels[:, 2]),
+            right_hippo_std = np.std(labels[:, 2])
         )
         return model
 
-    def _normalise_labels(self, age, cdr=None):
+    def _normalise_labels(self, age, left_hippocampus, right_hippocampus):
+        #cdr=None):
         ## zero mean normalisation
         age = (age - self.model["age_min"]) / (self.model["age_max"] - self.model["age_min"])
-        cdr_encoder = OneHotEncoder().fit(cdr)
-        cdr = cdr_encoder.transform(cdr).toarray()
-        cdr = cdr.astype(np.float32)
-        samples = np.concatenate([age, cdr], 1)
+        left_hippocampus = (left_hippocampus - self.model["left_hippo_mu"]) / self.model["left_hippo_std"]
+        right_hippocampus = (right_hippocampus - self.model["right_hippo_mu"]) / self.model["right_hippo_std"]
+        # cdr_encoder = OneHotEncoder().fit(cdr)
+        # cdr = cdr_encoder.transform(cdr).toarray()
+        # cdr = cdr.astype(np.float32)
+        samples = np.concatenate([age, left_hippocampus, right_hippocampus], 1)
         return samples
     
     def _load_raw_labels(self):
@@ -555,20 +562,23 @@ class AdniMRIDataset2D(ImageFolderDataset):
         labels = dict(labels)
         labels = [labels[fname.replace("\\", "/")] for fname in self._image_fnames] ## a dict 
 
-        self.vars = ["Age", "CDGLOBAL"]
+        # self.vars = ["Age", "CDGLOBAL", "left_hippocampus", "right_hippocampus"]
+        self.vars = ["Age", "left_hippocampus", "right_hippocampus"]
         new_labels = np.zeros(shape=(len(labels), len(self.vars)), dtype=np.float32)
         for num, l in enumerate(labels):
             i = list(l[self.vars[0]].items())[0][0]
             temp = [l[VAR][str(i)] for VAR in self.vars]
-            ## cdr 
-            temp[1] = 1 if temp[1] >= 1.0 else temp[1]
+            # ## cdr
+            # temp[1] = 1 if temp[1] >= 1.0 else temp[1]
             new_labels[num, :] = temp
         self.model = self._get_mu_std(new_labels)
-        new_labels = self._normalise_labels(
+        new_labels_norm = self._normalise_labels(
             age=new_labels[:, 0].reshape(-1, 1),
-            cdr=new_labels[:, 1].reshape(-1, 1)
+            # cdr=new_labels[:, 1].reshape(-1, 1)
+            left_hippocampus=new_labels[:, 1].reshape(-1, 1),
+            right_hippocampus=new_labels[:, 2].reshape(-1, 1)
         )
-        return new_labels
+        return new_labels_norm
 
 #----------------------------------------------------------------------------
 class MorphoMNISTDataset_causal(ImageFolderDataset):

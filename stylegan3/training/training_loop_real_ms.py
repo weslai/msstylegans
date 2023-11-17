@@ -178,6 +178,12 @@ def training_loop(
     df2 = latent_sampler2.get_graph()
     latent_model2 = latent_sampler2.get_causal_model()
 
+    ## cov dict for the common covariance
+    cov_dict = {}
+    if training_set.data_name == "ukb" or training_set.data_name == "adni":
+        cov_dict["age_max"] = max(training_set.model["age_max"], training_set1.model["age_max"])
+        cov_dict["age_min"] = min(training_set.model["age_min"], training_set1.model["age_min"])
+
     if rank == 0:
         print()
         print("Dataset name 1: ", training_set.data_name)
@@ -304,13 +310,16 @@ def training_loop(
             age = labels[:, 0] * (training_set.model["age_max"] - training_set.model["age_min"])  + training_set.model["age_min"]
             sample_labels = latent_sampler2.sampling_given_age(age=age, normalize=True).cpu().detach().numpy()
             c_source = np.array([0] * len(labels)) ## source 1
-            labels = np.concatenate([labels, sample_labels[:, 1:], c_source.reshape(len(labels), -1)], axis=1)
+            age_norm = (age - cov_dict["age_min"]) / (cov_dict["age_max"] - cov_dict["age_min"])
+            labels = np.concatenate([age_norm.reshape(-1, 1), labels[:, 1:], 
+                                     sample_labels[:, 1:], c_source.reshape(len(labels), -1)], axis=1)
 
             age = labels1[:, 0] * (training_set1.model["age_max"] - training_set1.model["age_min"]) + training_set1.model["age_min"]
             sample_labels1 = latent_sampler1.sampling_given_age(age, normalize=True).cpu().detach().numpy()
             c_source1 = np.array([1] * len(labels1)) ## source 2
+            age_norm = (age - cov_dict["age_min"]) / (cov_dict["age_max"] - cov_dict["age_min"])
             labels1 = np.concatenate([
-                labels1[:, 0].reshape(-1, 1), sample_labels1[:, 1:], 
+                age_norm.reshape(-1, 1), sample_labels1[:, 1:], 
                 labels1[:, 1:], c_source1.reshape(len(labels1), -1)], axis=1
             )
         else:
@@ -329,11 +338,6 @@ def training_loop(
     stats_jsonl = None
     if rank == 0:
         stats_jsonl = open(os.path.join(run_dir, 'stats.jsonl'), 'wt')
-        # try:
-        #     import torch.utils.tensorboard as tensorboard
-        #     stats_tfevents = tensorboard.SummaryWriter(run_dir)
-        # except ImportError as err:
-        #     print('Skipping tfevents export:', err)
 
     # Train.
     if rank == 0:
@@ -365,6 +369,8 @@ def training_loop(
             phase_real_img1 = (phase_real_img1.to(device).to(torch.float32) / 127.5 - 1).split(batch_gpu)
             ## source 2
             phase_real_img2 = (phase_real_img2.to(device).to(torch.float32) / 127.5 - 1).split(batch_gpu)
+            ## merge two sources together (real images)
+            phase_real_imgs = phase_real_img1 + phase_real_img2
 
             ## estimate the latent space (hidden variables)
             if training_set.data_name == "retinal": 
@@ -384,20 +390,24 @@ def training_loop(
                 age = phase_real_c1[:, 0] * torch.tensor(training_set.model["age_max"] - training_set.model["age_min"]) + torch.tensor(training_set.model["age_min"])
                 gen_c3 = latent_sampler2.sampling_given_age(age, normalize=True)
                 c_source = torch.tensor([0] * len(phase_real_c1)).reshape(len(phase_real_c1), -1) ## source 1
-                phase_real_c1 = torch.cat([phase_real_c1, gen_c3[:, 1:], c_source], dim=1).to(device).split(batch_gpu)
+                age_norm = (age - cov_dict["age_min"]) / (cov_dict["age_max"] - cov_dict["age_min"])
+                phase_real_c1 = torch.cat([age_norm.reshape(-1, 1), phase_real_c1[:, 1:], 
+                                        gen_c3[:, 1:], c_source], dim=1).to(device).split(batch_gpu)
                 ## estimate c1, c2 for source 2
                 age = phase_real_c2[:, 0] * torch.tensor(training_set1.model["age_max"] - training_set1.model["age_min"]) + torch.tensor(training_set1.model["age_min"])
                 gen_c12 = latent_sampler1.sampling_given_age(age, normalize=True)
                 c_source = torch.tensor([1] * len(phase_real_c2)).reshape(len(phase_real_c2), -1) ## source 2
-                phase_real_c2 = torch.cat([phase_real_c2[:, 0].reshape(-1, 1), gen_c12[:, 1:], 
+                age_norm = (age - cov_dict["age_min"]) / (cov_dict["age_max"] - cov_dict["age_min"])
+                phase_real_c2 = torch.cat([age_norm.reshape(-1, 1), gen_c12[:, 1:], 
                                         phase_real_c2[:, 1:], c_source], dim=1).to(device).split(batch_gpu)
 
             else:
                 raise NotImplementedError("Unknown dataset name: ", training_set.data_name)
+            phase_real_cs = phase_real_c1 + phase_real_c2
 
             ### Gen data
             all_gen_z = torch.randn([len(phases) * batch_size * 2, G.z_dim], device=device)
-            all_gen_z = [phase_gen_z.split(batch_gpu * 2) for phase_gen_z in all_gen_z.split(batch_size * 2)]
+            all_gen_z = [phase_gen_z.split(batch_gpu) for phase_gen_z in all_gen_z.split(batch_size * 2)]
             ## source 1
             all_gen_c1 = [training_set.get_label(np.random.randint(len(training_set))) for _ in range(len(phases) * batch_size)]
             ## source 2
@@ -424,19 +434,22 @@ def training_loop(
                 age = all_gen_c1[:, 0] * torch.tensor(training_set.model["age_max"] - training_set.model["age_min"]) + torch.tensor(training_set.model["age_min"])
                 gen_c3 = latent_sampler2.sampling_given_age(age, normalize=True)
                 c_source = torch.tensor([0] * len(all_gen_c1)).reshape(len(all_gen_c1), -1) ## source 1
-                all_gen_c1 = torch.cat([all_gen_c1, gen_c3[:, 1:], c_source], dim=1).pin_memory().to(device)
+                age_norm = (age - cov_dict["age_min"]) / (cov_dict["age_max"] - cov_dict["age_min"])
+                all_gen_c1 = torch.cat([age_norm.reshape(-1, 1), all_gen_c1[:, 1:],
+                                        gen_c3[:, 1:], c_source], dim=1).pin_memory().to(device)
                 ## estimate c1, c2 for source 2
                 age = all_gen_c2[:, 0] * torch.tensor(training_set1.model["age_max"] - training_set1.model["age_min"]) + torch.tensor(training_set1.model["age_min"])
                 gen_c12 = latent_sampler1.sampling_given_age(age, normalize=True)
                 c_source = torch.tensor([1] * len(all_gen_c2)).reshape(len(all_gen_c2), -1) ## source 2
-                all_gen_c2 = torch.cat([all_gen_c2[:, 0].reshape(-1, 1), gen_c12[:, 1:], 
+                age_norm = (age - cov_dict["age_min"]) / (cov_dict["age_max"] - cov_dict["age_min"])
+                all_gen_c2 = torch.cat([age_norm.reshape(-1, 1), gen_c12[:, 1:],
                                         all_gen_c2[:, 1:], c_source], dim=1).pin_memory().to(device)
             else:
                 raise NotImplementedError("Unknown dataset name: ", training_set.data_name)
             all_gen_c = torch.cat([all_gen_c1, all_gen_c2], dim=0)
             rand_idx = torch.randperm(all_gen_c.shape[0])
             all_gen_c = all_gen_c[rand_idx].view(*all_gen_c.shape)
-            all_gen_c = [phase_gen_c.split(batch_gpu * 2) for phase_gen_c in all_gen_c.split(batch_size * 2)]
+            all_gen_c = [phase_gen_c.split(batch_gpu) for phase_gen_c in all_gen_c.split(batch_size * 2)]
 
         # Execute training phases.
         for phase, phase_gen_z, phase_gen_c in zip(phases, all_gen_z, all_gen_c): ## Number of phases
@@ -449,9 +462,9 @@ def training_loop(
             phase.opt.zero_grad(set_to_none=True)
             phase.module.requires_grad_(True)
             
-            for real_img, real_c, gen_z, gen_c in zip(phase_real_img1, phase_real_c1, phase_gen_z, phase_gen_c):
+            for real_img, real_c, gen_z, gen_c in zip(phase_real_imgs, phase_real_cs, phase_gen_z, phase_gen_c):
                 loss.accumulate_gradients(phase=phase.name, real_img=real_img, real_c=real_c,
-                                        gen_z=gen_z[:batch_gpu], gen_c=gen_c[:batch_gpu], gain=phase.interval, cur_nimg=cur_nimg,
+                                        gen_z=gen_z, gen_c=gen_c, gain=phase.interval, cur_nimg=cur_nimg,
                                         lambda_=cur_lambda)
             phase.module.requires_grad_(False)
 
@@ -469,32 +482,32 @@ def training_loop(
                         param.grad = grad.reshape(param.shape)
                 phase.opt.step()
 
-            ## source 2
-            # Accumulate gradients.
-            phase.opt.zero_grad(set_to_none=True)
-            phase.module.requires_grad_(True)
-            for real_img, real_c, gen_z, gen_c in zip(phase_real_img2, phase_real_c2, phase_gen_z, phase_gen_c):
-                loss.accumulate_gradients(phase=phase.name, real_img=real_img, real_c=real_c, 
-                                        gen_z=gen_z[batch_gpu:], gen_c=gen_c[batch_gpu:], gain=phase.interval, cur_nimg=cur_nimg,
-                                        lambda_=cur_lambda)
-            phase.module.requires_grad_(False)
+            # ## source 2
+            # # Accumulate gradients.
+            # phase.opt.zero_grad(set_to_none=True)
+            # phase.module.requires_grad_(True)
+            # for real_img, real_c, gen_z, gen_c in zip(phase_real_img2, phase_real_c2, phase_gen_z, phase_gen_c):
+            #     loss.accumulate_gradients(phase=phase.name, real_img=real_img, real_c=real_c, 
+            #                             gen_z=gen_z[batch_gpu:], gen_c=gen_c[batch_gpu:], gain=phase.interval, cur_nimg=cur_nimg,
+            #                             lambda_=cur_lambda)
+            # phase.module.requires_grad_(False)
 
-            # Update weights.
-            with torch.autograd.profiler.record_function(phase.name + '_opt'):
-                params = [param for param in phase.module.parameters() if param.grad is not None]
-                # if phase.name in ["Dmain", "Dreg", "Dboth"]:
-                #     ### TODO update certain weights
-                #     pass
-                if len(params) > 0:
-                    flat = torch.cat([param.grad.flatten() for param in params])
-                    if num_gpus > 1:
-                        torch.distributed.all_reduce(flat)
-                        flat /= num_gpus
-                    misc.nan_to_num(flat, nan=0, posinf=1e5, neginf=-1e5, out=flat)
-                    grads = flat.split([param.numel() for param in params])
-                    for param, grad in zip(params, grads):
-                        param.grad = grad.reshape(param.shape)
-                phase.opt.step()
+            # # Update weights.
+            # with torch.autograd.profiler.record_function(phase.name + '_opt'):
+            #     params = [param for param in phase.module.parameters() if param.grad is not None]
+            #     # if phase.name in ["Dmain", "Dreg", "Dboth"]:
+            #     #     ### TODO update certain weights
+            #     #     pass
+            #     if len(params) > 0:
+            #         flat = torch.cat([param.grad.flatten() for param in params])
+            #         if num_gpus > 1:
+            #             torch.distributed.all_reduce(flat)
+            #             flat /= num_gpus
+            #         misc.nan_to_num(flat, nan=0, posinf=1e5, neginf=-1e5, out=flat)
+            #         grads = flat.split([param.numel() for param in params])
+            #         for param, grad in zip(params, grads):
+            #             param.grad = grad.reshape(param.shape)
+            #     phase.opt.step()
             # Phase done.
             if phase.end_event is not None:
                 phase.end_event.record(torch.cuda.current_stream(device))
@@ -638,9 +651,9 @@ def training_loop(
         tick_start_time = time.time()
         maintenance_time = tick_start_time - tick_end_time
         wandb.log({'lambda (mse)': cur_lambda}, step=cur_nimg)
-        cur_lambda = min(0.9, cur_lambda + 1 / 100)
+        cur_lambda = min(1, cur_lambda + 1 / 50)
         ## early stopping
-        if early_stop > 10:
+        if early_stop > 5:
             done = True
             if rank == 0:
                 print()
