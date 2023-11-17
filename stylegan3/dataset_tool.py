@@ -668,7 +668,12 @@ def open_dataset(source, *, dataset_name: str = None,
                     "diastolic_bp",
                     "systolic_bp",
                     "spherical_power_left",
-                    "cylindrical_power_left"
+                    "cylindrical_power_left",
+                    "astigmatism_angle_left",
+                    "myopia",
+                    "hyperopia",
+                    "presbyopia",
+                    "astigmatism"
                 ]
             )
         ## adni

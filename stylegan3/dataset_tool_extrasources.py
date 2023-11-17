@@ -479,13 +479,13 @@ def open_dataset(source, *,
                 covs=["filepath_MNIlin", 
                     "Age", 
                     #"Sex",
-                    "CDGLOBAL"]
+                    "CDGLOBAL",
                     # "left_lateral_ventricle",
                     # "right_lateral_ventricle",
                     # "left_cerebral_cortex",
                     # "right_cerebral_cortex",
-                    # "left_hippocampus",
-                    # "right_hippocampus"]
+                    "left_hippocampus",
+                    "right_hippocampus"]
             )
         ## nacc
         elif source.rstrip('/').endswith("NACC"):
