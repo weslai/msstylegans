@@ -73,6 +73,7 @@ def iterate_random_labels(opts, batch_size):
             yield c
     else:
         dataset = dnnlib.util.construct_class_by_name(**opts.dataset_kwargs)
+        cov_dict = {}
         if opts.dataset_kwargs_1 is not None:
             dataset1 = dnnlib.util.construct_class_by_name(**opts.dataset_kwargs_1)
             concat_dataset = ConcatDataset(dataset, dataset1)
@@ -83,18 +84,23 @@ def iterate_random_labels(opts, batch_size):
                     label1, label2 = source1[1], source2[1]
                     if dataset.data_name == "ukb": ## MRI
                         ## estimation c3
+                        cov_dict["age_max"] = max(dataset.model["age_max"], dataset1.model["age_max"])
+                        cov_dict["age_min"] = min(dataset.model["age_min"], dataset1.model["age_min"])
                         c1 = label1[0] * (dataset.model["age_max"] - dataset.model["age_min"]) + dataset.model["age_min"]
                         label_w_c3 = opts.sampler2.sampling_given_age(torch.tensor(c1).reshape(-1, 1), normalize=True)
                         c_source = torch.tensor([0]).reshape(1, -1)
-                        source1_labels = torch.concat([torch.tensor(label1).reshape(1, -1), label_w_c3[0, 1:].reshape(1, -1),
-                                                      c_source], dim=1)
+                        c1_norm = (c1 - cov_dict["age_min"]) / (cov_dict["age_max"] - cov_dict["age_min"])
+                        source1_labels = torch.concat([torch.tensor(c1_norm).reshape(-1, 1), torch.tensor(label1[1:]).reshape(1, -1),
+                                                       label_w_c3[0, 1:].reshape(1, -1), c_source], dim=1)
                         ## estimate c2
                         c1 = label2[0] * (dataset1.model["age_max"] - dataset1.model["age_min"]) + dataset1.model["age_min"]
                         label_w_c2 = opts.sampler1.sampling_given_age(torch.tensor(c1).reshape(-1, 1), normalize=True)
                         c_source = torch.tensor([1]).reshape(1, -1)
+                        c1_norm = (c1 - cov_dict["age_min"]) / (cov_dict["age_max"] - cov_dict["age_min"])
                         label2 = torch.tensor(label2)
                         source2_labels = torch.concat(
-                            [label2[0].reshape(1, -1), label_w_c2[0, 1:].reshape(1, -1), label2[1:].reshape(1, -1), c_source],
+                            [torch.tensor(c1_norm).reshape(1, -1), label_w_c2[0, 1:].reshape(1, -1), 
+                             label2[1:].reshape(1, -1), c_source],
                             dim=1
                         )
                     elif dataset.data_name == "retinal":

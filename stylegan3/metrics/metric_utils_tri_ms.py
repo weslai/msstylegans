@@ -80,7 +80,17 @@ def iterate_random_labels(opts, batch_size):
         if opts.dataset_kwargs_1 is not None:
             dataset1 = dnnlib.util.construct_class_by_name(**opts.dataset_kwargs_1)
             dataset2 = dnnlib.util.construct_class_by_name(**opts.dataset_kwargs_2)
+            ### activate datasets
+            dataset.get_label(0)
+            dataset1.get_label(0)
+            dataset2.get_label(0)
             concat_dataset = ConcatDataset(dataset, dataset1, dataset2)
+            if dataset.data_name == "ukb":
+                cov_dict = {}
+                cov_dict["age_max"] = max(dataset.model["age_max"], dataset1.model["age_max"],
+                                          dataset2.model["age_max"])
+                cov_dict["age_min"] = min(dataset.model["age_min"], dataset1.model["age_min"],
+                                          dataset2.model["age_min"])
             while True:
                 c = []
                 for _i in range(batch_size//3):
@@ -92,27 +102,35 @@ def iterate_random_labels(opts, batch_size):
                         label_w_c3 = opts.sampler2.sampling_given_age(torch.tensor(c1).reshape(-1, 1), normalize=True)
                         label_w_c4 = opts.sampler3.sampling_given_age(torch.tensor(c1).reshape(-1, 1), normalize=True)
                         c_source = torch.tensor([1, 0, 0]).reshape(1, -1)
-                        source1_labels = torch.concat([torch.tensor(label1).reshape(1, -1), label_w_c3[0, 1:].reshape(1, -1),
-                                                        label_w_c4[0, 1:4].reshape(1, -1), c_source], dim=1)
+                        c1_norm = (c1 - cov_dict["age_min"]) / (cov_dict["age_max"] - cov_dict["age_min"])
+                        source1_labels = torch.concat([torch.tensor(c1_norm).reshape(-1, 1), 
+                                                       torch.tensor(label1[1:]).reshape(1, -1), 
+                                                       label_w_c3[0, 1:].reshape(1, -1),
+                                                       label_w_c4[0, 1:].reshape(1, -1), c_source], dim=1)
                         ## estimate c2
                         c1 = label2[0] * (dataset1.model["age_max"] - dataset1.model["age_min"]) + dataset1.model["age_min"]
                         label_w_c2 = opts.sampler1.sampling_given_age(torch.tensor(c1).reshape(-1, 1), normalize=True)
                         label_w_c4 = opts.sampler3.sampling_given_age(torch.tensor(c1).reshape(-1, 1), normalize=True)
                         c_source = torch.tensor([0, 1, 0]).reshape(1, -1)
+                        c1_norm = (c1 - cov_dict["age_min"]) / (cov_dict["age_max"] - cov_dict["age_min"])
                         label2 = torch.tensor(label2)
                         source2_labels = torch.concat(
-                            [label2[0].reshape(1, -1), label_w_c2[0, 1:].reshape(1, -1), label2[1:].reshape(1, -1), 
-                            label_w_c4[0, 1:4].reshape(1, -1), c_source],
+                            [torch.tensor(c1_norm).reshape(1, -1), label_w_c2[0, 1:].reshape(1, -1),
+                            label2[1:].reshape(1, -1), 
+                            label_w_c4[0, 1:].reshape(1, -1), c_source],
                             dim=1
                         )
                         ## estimate c2, c3
                         c1 = label3[0] * (dataset2.model["age_max"] - dataset2.model["age_min"]) + dataset2.model["age_min"]
                         label_w_c2 = opts.sampler1.sampling_given_age(torch.tensor(c1).reshape(-1, 1), normalize=True)
+                        label_w_c3 = opts.sampler2.sampling_given_age(torch.tensor(c1).reshape(-1, 1), normalize=True)
                         c_source = torch.tensor([0, 0, 1]).reshape(1, -1)
+                        c1_norm = (c1 - cov_dict["age_min"]) / (cov_dict["age_max"] - cov_dict["age_min"])
                         label3 = torch.tensor(label3)
                         source3_labels = torch.concat(
-                            [label3[0].reshape(1, -1), label_w_c2[0, 1:].reshape(1, -1), label3[4:].reshape(1, -1),
-                            label3[1:4].reshape(1, -1), c_source], ## age, volumes, cdr, apoe
+                            [torch.tensor(c1_norm).reshape(-1, 1),
+                            label_w_c2[0, 1:].reshape(1, -1), label_w_c3[0, 1:].reshape(1, -1),
+                            label3[1:].reshape(1, -1), c_source], ## age, volumes, hippocampus, apoe
                             dim=1
                         )
                     elif dataset.data_name == "retinal":
@@ -143,6 +161,7 @@ def iterate_random_labels(opts, batch_size):
                 c = torch.concat(c).pin_memory().to(opts.device)
                 yield c
         else:
+            dataset.get_label(0)
             while True:
                 c = [dataset.get_label(np.random.randint(len(dataset))) for _i in range(batch_size)]
                 c = torch.from_numpy(np.stack(c)).pin_memory().to(opts.device)
@@ -275,11 +294,17 @@ class ProgressMonitor:
 
 #----------------------------------------------------------------------------
 
-def compute_feature_stats_for_dataset(opts, detector_url, detector_kwargs, rel_lo=0, rel_hi=1, batch_size=64, data_loader_kwargs=None, max_items=None, **stats_kwargs):
+def compute_feature_stats_for_dataset(opts, detector_url, detector_kwargs, rel_lo=0, rel_hi=1, batch_size=64,
+                                      data_loader_kwargs=None, max_items=None, **stats_kwargs):
     dataset = dnnlib.util.construct_class_by_name(**opts.dataset_kwargs)
-    if opts.dataset_kwargs_1 is not None:
+    if opts.dataset_kwargs_1 is not None and opts.dataset_kwargs_2 is not None:
         dataset1 = dnnlib.util.construct_class_by_name(**opts.dataset_kwargs_1)
-        concat_dataset = ConcatDataset(dataset, dataset1)
+        dataset2 = dnnlib.util.construct_class_by_name(**opts.dataset_kwargs_2)
+        ### activate datasets
+        dataset.get_label(0)
+        dataset1.get_label(0)
+        dataset2.get_label(0)
+        concat_dataset = ConcatDataset(dataset, dataset1, dataset2)
 
     if data_loader_kwargs is None:
         data_loader_kwargs = dict(pin_memory=True, num_workers=3, prefetch_factor=2)
@@ -288,8 +313,9 @@ def compute_feature_stats_for_dataset(opts, detector_url, detector_kwargs, rel_l
     cache_file = None
     if opts.cache:
         # Choose cache file name.
-        if opts.dataset_kwargs_1 is not None:
+        if opts.dataset_kwargs_1 is not None and opts.dataset_kwargs_2 is not None:
             args = dict(dataset_kwargs=opts.dataset_kwargs, dataset_kwargs_1=opts.dataset_kwargs_1,
+                        dataset_kwargs_2=opts.dataset_kwargs_2,
                         detector_url=detector_url, detector_kwargs=detector_kwargs, stats_kwargs=stats_kwargs)
         else:
             args = dict(dataset_kwargs=opts.dataset_kwargs, detector_url=detector_url, detector_kwargs=detector_kwargs, stats_kwargs=stats_kwargs)
@@ -321,11 +347,13 @@ def compute_feature_stats_for_dataset(opts, detector_url, detector_kwargs, rel_l
 
     # Main loop.
     item_subset = [(i * opts.num_gpus + opts.rank) % num_items for i in range((num_items - 1) // opts.num_gpus + 1)]
-    if opts.dataset_kwargs_1 is not None:
-        for source1, source2 in torch.utils.data.DataLoader(dataset=concat_dataset, sampler=item_subset, batch_size=batch_size, **data_loader_kwargs):
+    if opts.dataset_kwargs_1 is not None and opts.dataset_kwargs_2 is not None:
+        for source1, source2, source3 in torch.utils.data.DataLoader(dataset=concat_dataset, sampler=item_subset, batch_size=batch_size, **data_loader_kwargs):
             images1, _labels = source1[0], source1[1]
             images2, _labels = source2[0], source2[1]
-            for images in [images1, images2]:
+            images3, _labels = source3[0], source3[1]
+
+            for images in [images1, images2, images3]:
                 if images.shape[1] == 1:
                     images = images.repeat([1, 3, 1, 1])
                 features = detector(images.to(opts.device), **detector_kwargs)
