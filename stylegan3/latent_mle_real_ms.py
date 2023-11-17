@@ -24,7 +24,7 @@ def get_settings(dataset: str):
         age_estimator = "beta"
         log_volumes = True
     elif dataset == "adni":
-        n_components = None
+        n_components = 8
         age_estimator = "beta"
         log_volumes = False
     elif dataset == "nacc":
@@ -48,12 +48,14 @@ def set_dataset(name: str):
         VARS = ["age"] + VOLS
         ## ------------------------------------------------------
     elif name == "adni":
-        VOLS = None
-        VARS = ["Age", "CDGLOBAL"]
+        VOLS = ["left_hippocampus", "right_hippocampus"]
+        # VARS = ["Age", "CDGLOBAL"]
+        VARS = ["Age"] + VOLS
         ## ------------------------------------------------------
     elif name == "nacc":
         VOLS = None
-        VARS = ["Age", "Apoe4", "CDGLOBAL"]
+        VARS = ["Age", "Apoe4"]
+        # VARS = ["Age", "Apoe4", "CDGLOBAL"]
         ## ------------------------------------------------------
     elif name == "retinal":
         VOLS = ["diastolic_bp", "spherical_power_left"]
@@ -65,14 +67,15 @@ def set_dataset(name: str):
         ## ------------------------------------------------------
     elif name == "rfmid":
         VOLS = None
-        VARS = [
-            #"Disease_Risk",
-            "DR","ARMD","MH","DN","MYA",
-            "BRVO","TSLN","ERM","LS","MS","CSR","ODC","CRVO",
-            "TV","AH","ODP","ODE","ST","AION","PT","RT","RS","CRS",
-            "EDN","RPEC","MHL","RP","CWS","CB","ODPM","PRH","MNF","HR",
-            "CRAO","TD","CME","PTCR","CF","VH","MCA","VS","BRAO","PLQ","HPED","CL"
-        ]
+        VARS = ["Disease_Risk", "DR", "ARMD", "MH", "MYA", "BRVO", "TSLN", "ODC", "ODP"]
+        # VARS = [
+        #     #"Disease_Risk",
+        #     "DR","ARMD","MH","DN","MYA",
+        #     "BRVO","TSLN","ERM","LS","MS","CSR","ODC","CRVO",
+        #     "TV","AH","ODP","ODE","ST","AION","PT","RT","RS","CRS",
+        #     "EDN","RPEC","MHL","RP","CWS","CB","ODPM","PRH","MNF","HR",
+        #     "CRAO","TD","CME","PTCR","CF","VH","MCA","VS","BRAO","PLQ","HPED","CL"
+        # ]
     return VARS, VOLS
 
 class SourceSampling:
@@ -163,7 +166,7 @@ class SourceSampling:
     def sampling_given_age(self, age, normalize: bool = False):
         if normalize:
             ages, volumes = sample_from_model_given_age(age, self.dataset, self.model)
-            if self.dataset in ["adni", "nacc"]:
+            if self.dataset == "nacc":
                 return preprocess_samples(ages, volumes, model=self.model, dataset=self.dataset)
             ages = (ages - self.model["min_age"]) / (self.model["max_age"] - self.model["min_age"])
             # ages = (ages - self.mu_std_df["mu"][self.vars[0]]) / self.mu_std_df["mu"][self.vars[0]]
@@ -196,10 +199,10 @@ def get_data(dataset: str, vars: list, path: str = None, image_fnames: list = No
         i = list(l[vars[0]].items())[0][0]
         temp = [l[var][str(i)] for var in vars]
         ## cdr
-        if dataset == "adni":
-            temp[1] = 1 if temp[1] >= 1.0 else temp[1]
-        elif dataset == "nacc":
-            temp[-1] = 1 if temp[-1] >= 1.0 else temp[-1]
+        # if dataset == "adni":
+        #     temp[1] = 1 if temp[1] >= 1.0 else temp[1]
+        # elif dataset == "nacc":
+        #     temp[-1] = 1 if temp[-1] >= 1.0 else temp[-1]
         new_labels[num, :] = temp
     new_labels = pd.DataFrame(new_labels, columns=vars)
     if dataset == "nacc":
@@ -296,14 +299,19 @@ def estimate_mle(
     ## cdr only in ADNI
     if dataset == "adni":
         ## assume CDR >= 1.0 is AD (1.0, 2.0, 3.0) == 1.0 
-        cdr_weights, cdr_bias = softmax_regression(
-        y=df["CDGLOBAL"].values, x=df[["Age"]]
-        )
+        # cdr_weights, cdr_bias = softmax_regression(
+        # y=df["CDGLOBAL"].values, x=df[["Age"]]
+        # )
+        # model.update(
+        #     cdr_weights=torch.tensor(cdr_weights, dtype=torch.float),
+        #     cdr_bias=torch.tensor(cdr_bias, dtype=torch.float),
+        #     cdr_encoder=OneHotEncoder().fit(df["CDGLOBAL"].values.reshape(-1, 1)),
+        #     cdr_classes=torch.tensor([0, 0.5, 1]),
+        # )
+        ### left and right hippocampus
         model.update(
-            cdr_weights=torch.tensor(cdr_weights, dtype=torch.float),
-            cdr_bias=torch.tensor(cdr_bias, dtype=torch.float),
-            cdr_encoder=OneHotEncoder().fit(df["CDGLOBAL"].values.reshape(-1, 1)),
-            cdr_classes=torch.tensor([0, 0.5, 1]),
+            vol_means=vols.mean(axis=0) if log_volumes else df[labels_vol].mean().values,
+            vol_std=vols.std(axis=0) if log_volumes else df[labels_vol].std().values,
         )
     elif dataset == "nacc":
         ## apoe = 0, 1, 2
@@ -311,18 +319,18 @@ def estimate_mle(
         y=df["Apoe4"].values, x=df[["Age"]]
         )
         ## assume CDR >= 1.0 is AD (1.0, 2.0, 3.0) == 1.0
-        cdr_weights, cdr_bias = softmax_regression(
-        y=df["CDGLOBAL"].values, x=df[["Age"]]
-        )
+        # cdr_weights, cdr_bias = softmax_regression(
+        # y=df["CDGLOBAL"].values, x=df[["Age"]]
+        # )
         model.update(
             apoe_weights=torch.tensor(apoe_weights, dtype=torch.float),
             apoe_bias=torch.tensor(apoe_bias, dtype=torch.float),
             apoe_encoder=OneHotEncoder().fit(df["Apoe4"].values.reshape(-1, 1)),
             apoe_classes=torch.tensor([0, 1, 2]),
-            cdr_weights=torch.tensor(cdr_weights, dtype=torch.float),
-            cdr_bias=torch.tensor(cdr_bias, dtype=torch.float),
-            cdr_encoder=OneHotEncoder().fit(df["CDGLOBAL"].values.reshape(-1, 1)),
-            cdr_classes=torch.tensor([0, 0.5, 1]),
+            # cdr_weights=torch.tensor(cdr_weights, dtype=torch.float),
+            # cdr_bias=torch.tensor(cdr_bias, dtype=torch.float),
+            # cdr_encoder=OneHotEncoder().fit(df["CDGLOBAL"].values.reshape(-1, 1)),
+            # cdr_classes=torch.tensor([0, 0.5, 1]),
         )
     elif dataset == "ukb":
         model.update(
@@ -343,7 +351,7 @@ def estimate_mle(
             )
     if labels_vol is not None:
         if volumes_as_gmm: ## gussian mixture model
-            if dataset == "ukb" or dataset == "retinal":
+            if dataset in ["ukb", "retinal", "adni"]:
                 vol_gmm, vol_indices = gmm_regression(
                         y=vols,
                         x=df[vars[0]].values.reshape(-1, 1),
@@ -410,15 +418,17 @@ def sample_from_model(dataset: str, model, num_samples=100):
         else:
             raise ValueError(model["age_model"])
         X = A
-        if dataset in ["adni", "nacc"]:
-            cdr_prob = torch.softmax(X @ model["cdr_weights"].T + model["cdr_bias"], dim=1)
-            V = model["cdr_classes"][torch.multinomial(cdr_prob, num_samples=1)]
+        # if dataset in ["adni", "nacc"]:
+        # if dataset == "adni":
+        #     cdr_prob = torch.softmax(X @ model["cdr_weights"].T + model["cdr_bias"], dim=1)
+        #     V = model["cdr_classes"][torch.multinomial(cdr_prob, num_samples=1)]
         if dataset == "nacc":
             apoe_prob = torch.softmax(X @ model["apoe_weights"].T + model["apoe_bias"], dim=1)
             apoe = model["apoe_classes"][torch.multinomial(apoe_prob, num_samples=1)]
-            V = torch.cat((apoe, V), dim=1)
+            # V = torch.cat((apoe, V), dim=1)
+            V = apoe
 
-        if dataset not in ["adni", "nacc"]:
+        else:
             if "vol_gmm" in model:
                 V = sample_from_gmm_custom(
                     x=X, indices=model["vol_indices"], gmm=model["vol_gmm"]
@@ -457,15 +467,17 @@ def sample_from_model_given_age(age, dataset: str, model):
     age = age.reshape(-1, 1)
     if type(age) != torch.Tensor:
             age = torch.tensor(age, dtype=torch.float32)
-    if dataset in ["adni", "nacc"]:
-        cdr_prob = torch.softmax(age @ model["cdr_weights"].T + model["cdr_bias"], dim=1)
-        V = model["cdr_classes"][torch.multinomial(cdr_prob, num_samples=1)]
+    # if dataset in ["adni", "nacc"]:
+    # if dataset == "adni":
+    #     cdr_prob = torch.softmax(age @ model["cdr_weights"].T + model["cdr_bias"], dim=1)
+    #     V = model["cdr_classes"][torch.multinomial(cdr_prob, num_samples=1)]
     if dataset == "nacc":
         apoe_prob = torch.softmax(age @ model["apoe_weights"].T + model["apoe_bias"], dim=1)
         apoe = model["apoe_classes"][torch.multinomial(apoe_prob, num_samples=1)]
-        V = torch.cat((apoe, V), dim=1)
+        V = apoe
+        # V = torch.cat((apoe, V), dim=1)
 
-    if dataset not in ["adni", "nacc"]:
+    else:
         if "vol_gmm" in model:
             V = sample_from_gmm_custom(
                 x=age, indices=model["vol_indices"], gmm=model["vol_gmm"]
@@ -487,7 +499,7 @@ def sample_from_model_given_age(age, dataset: str, model):
     return age, V
 
 def preprocess_samples(A=None, V=None, model=None, dataset:str = None):
-    if dataset == "ukb":
+    if dataset in ["ukb", "adni"]:
         if model["vol_model"] == "lognormal":
             V = (torch.log(V) - model["vol_means"]) / model["vol_std"]
         else:
@@ -502,35 +514,33 @@ def preprocess_samples(A=None, V=None, model=None, dataset:str = None):
                 V = (torch.log(V) - model["c_means"]) / model["c_std"]
         else:
             V = (V - model["c_means"]) / model["c_std"]
-    elif dataset in ["adni", "nacc"]:
-        ## one hot encode
-        cdr = torch.tensor(model["cdr_encoder"].transform(V[:, -1].reshape(-1, 1)).toarray())
-        V = cdr
+    # elif dataset in ["adni", "nacc"]:
+    # elif dataset == "adni":
+    #     ## one hot encode
+    #     cdr = torch.tensor(model["cdr_encoder"].transform(V[:, -1].reshape(-1, 1)).toarray())
+    #     V = cdr
     elif dataset == "eyepacs":
         num_classes = len(model.keys())
         V = F.one_hot(torch.tensor(V, dtype=torch.long), num_classes=num_classes)
         V = V.squeeze(1)
         return V
+    elif dataset == "nacc":
+        apoe = torch.tensor(model["apoe_encoder"].transform(V).toarray())
+        V = apoe
+        # V = torch.cat((apoe, cdr), dim=1)
     else:
         raise ValueError(f'{dataset} is wrong')
-    if dataset == "nacc":
-        apoe = torch.tensor(model["apoe_encoder"].transform(V[:, 0].reshape(-1, 1)).toarray())
-        V = torch.cat((apoe, cdr), dim=1)
     A = (A - model["min_age"]) / (model["max_age"] - model["min_age"])
     return torch.cat([A, V], 1)
 
-def unnormalize_samples(S, A, C=None, V=None, model=None, dataset: str = None):
+# def unnormalize_samples(S, A, C=None, V=None, model=None, dataset: str = None):
+def unnormalize_samples(S, A, V=None, model=None, dataset: str = None):
     ### reverse function of preprocess_samples
     V = V * model["vol_std"] + model["vol_means"]
-    if dataset == "adni":
-        A = model["min_age"] + (model["max_age"] - model["min_age"]) * A
-        C = torch.tensor(model["cdr_encoder"].inverse_transform(C.cpu().detach().numpy()).reshape(-1, 1))
-        return torch.cat([S.reshape(-1, 1), A.reshape(-1, 1), C, V], dim=1)
-    elif dataset == "ukb":
-        A = model["min_age"] + (model["max_age"] - model["min_age"]) * A
-        return torch.cat([S.reshape(-1, 1), A.reshape(-1, 1), V], dim=-1)
-    else:
-        raise ValueError(f'{dataset} is wrong')
+    A = model["min_age"] + (model["max_age"] - model["min_age"]) * A
+    return torch.cat([S.reshape(-1, 1), A.reshape(-1, 1), V], dim=1)
+        # C = torch.tensor(model["cdr_encoder"].inverse_transform(C.cpu().detach().numpy()).reshape(-1, 1))
+        # return torch.cat([S.reshape(-1, 1), A.reshape(-1, 1), C, V], dim=1)
 
 def softmax_regression(y, x):
     lr = LogisticRegression(multi_class="multinomial", penalty="none", max_iter=10000)
