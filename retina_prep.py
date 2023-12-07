@@ -1,5 +1,4 @@
 from pathlib import Path
-
 import numpy as np
 import pandas as pd
 import torch
@@ -18,9 +17,12 @@ QCOVARIATES = {
     "cylindrical_power_right": 5087,
     "spherical_power_left": 5085, ##(c3) kurzsichtigkeit/weitsichtigkeit
     "spherical_power_right": 5084,
+    "astigmatism_angle_left": 5089,  ## new
+    "astigmatism_angle_right": 5088,  ## new
 }
 CCOVARIATES = {
     "female": 31,
+    "cataract": 5441,
     "myopia": 6147,
     "hyperopia": 6147,
     "presbyopia": 6147,
@@ -33,7 +35,37 @@ CCOVARIATE_CODING = {
     "presbyopia": 3,
     "female": 0,
 }
+CATARACT_CODING = {
+    "left": 2,
+    "both": 3
+}
 NROWS = None
+
+def get_subset_split_datasources(in_file="tmp.csv", reference_covariate: str = "cataract",
+                                num_sources=2, outfile="tmp.csv"):
+    df = pd.read_csv(in_file, index_col=0)
+    ## assume that the reference covariate is binary
+    df_subset = df[df[reference_covariate] == 1]
+    df_subset_other = df[df[reference_covariate] == 0]
+
+    df_subset_other = df.reindex(np.random.permutation(df_subset_other.index))
+    num_other = int(60 / 40 * df_subset.shape[0])
+    df_subset_other = df_subset_other.iloc[:num_other]
+    
+    df = pd.concat([df_subset, df_subset_other])
+    df = df.reindex(np.random.permutation(df.index))
+    nrow = df.shape[0]
+    split = int(nrow // num_sources)
+    sources = []
+    for i in range(num_sources):
+        if i == num_sources - 1:
+            s = df.iloc[i * split :]
+        else:
+            s = df.iloc[i * split : min((i + 1) * split, nrow)]
+        s.to_csv(outfile.replace(".csv", f"_source{i}.csv"))
+        sources.append(s)
+    return sources
+
 
 def get_split_datasources(in_file="tmp.csv", num_sources=2, outfile="tmp.csv"):
     df = pd.read_csv(in_file, index_col=0)
@@ -106,7 +138,12 @@ def get_pheno(iids):
     cdf = cdf.loc[I]
     for pheno in CCOVARIATES:
         cols = [col for col in cdf.columns if is_in_set(col, [CCOVARIATES[pheno]])]
-        cdf[pheno] = (cdf[cols] == CCOVARIATE_CODING[pheno]).any(axis=1) * 1.0
+        if pheno == "cataract":
+            left_eyes = (cdf[cols] == CATARACT_CODING["left"]).any(axis=1) * 1.0
+            both_eyes = (cdf[cols] == CATARACT_CODING["both"]).any(axis=1) * 1.0
+            cdf[pheno] = left_eyes + both_eyes
+        else:
+            cdf[pheno] = (cdf[cols] == CCOVARIATE_CODING[pheno]).any(axis=1) * 1.0
     cdf = cdf[CCOVARIATES.keys()]
 
     return qdf, cdf
@@ -141,5 +178,5 @@ class UKBRetina(Dataset):
         return img, covs
 
 if __name__ == "__main__":
-    save_path = "/dhc/groups/fglippert/Ukbiobank/imaging/retinal_fundus/phenotype.csv"
+    save_path = "/dhc/groups/fglippert/Ukbiobank/imaging/retinal_fundus/phenotype_22nov2023.csv"
     df = get_img_indivs(out_file=save_path, side="left")
