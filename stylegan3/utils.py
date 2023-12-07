@@ -15,7 +15,7 @@ import legacy
 ### --- Own ---
 ### -----------
 from evaluations.eval_utils import get_k_lowest_checkpoints
-from eval_regr.model import RegressionResnet
+from eval_regr.model import RegressionResnet, ClassificationResnet, MNISTClassificationResnet, MNISTRegressionResnet
 
 ## pairplot
 def plot_pairplots(df, kind: str = "hist", diag_kind: str = "hist", save_path: str = None):
@@ -126,7 +126,12 @@ def load_discriminator(
     return D
 
 def load_regression_model(
-    checkpoint_path: str
+    checkpoint_path: str,
+    which_model: str = "resnet50",
+    ncls: int = None,
+    task: str = "regression",
+    is_new_model: bool = True,
+    continue_training: bool = False
 ):
     """load the regression model for evaluations, regression model gets the input as images
     and outputs the covariates (i.e. age, grey matter volume, etc.)
@@ -134,9 +139,43 @@ def load_regression_model(
     Checkpoint
     Returns:
     """
-    net = RegressionResnet.load_from_checkpoint(checkpoint_path)
-    net.eval()
-    net.freeze()
+    if task == "regression":
+        net = RegressionResnet.load_from_checkpoint(checkpoint_path, which_model=which_model,
+                                                    is_new_model=is_new_model)
+    else:
+        assert ncls is not None
+        net = ClassificationResnet.load_from_checkpoint(checkpoint_path, ncls=ncls, which_model=which_model,
+                                                        is_new_model=is_new_model)
+    if continue_training:
+        net.train()
+    else:
+        net.eval()
+        net.freeze()
+    return net
+
+def load_single_source_regression_model(
+    checkpoint_path: str,
+    which_model: str = "resnet50",
+    ncls: int = None,
+    task: str = "regression",
+    continue_training: bool = False
+):
+    """load the regression model for evaluations, regression model gets the input as images
+    and outputs the covariates (i.e. age, grey matter volume, etc.)
+
+    Checkpoint
+    Returns:
+    """
+    if task == "regression":
+        net = MNISTRegressionResnet.load_from_checkpoint(checkpoint_path, which_model=which_model)
+    else:
+        assert ncls is not None
+        net = MNISTClassificationResnet.load_from_checkpoint(checkpoint_path, ncls=ncls, which_model=which_model)
+    if continue_training:
+        net.train()
+    else:
+        net.eval()
+        net.freeze()
     return net
     
 ### -------------------- ###
