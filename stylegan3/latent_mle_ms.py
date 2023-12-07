@@ -30,7 +30,7 @@ def get_settings(dataset: str, which_source: str = None):
         n_components = 13
         age_estimator = "gmm"
         if which_source == "source1":
-            log_volumes = True
+            log_volumes = False
         elif which_source == "source2": ## have negative values
             log_volumes = True
     return n_components, age_estimator, log_volumes
@@ -65,7 +65,8 @@ def set_dataset(name: str, which_source=None):
         ## ------------------------------------------------------
     elif name == "retinal":
         if which_source == "source1":
-            VOLS = ["diastolic_bp"]
+            # VOLS = ["diastolic_bp"]
+            VOLS = ["cataract"]
         elif which_source == "source2":
             VOLS = ["spherical_power_left"]
         VARS = ["age"] + VOLS
@@ -141,7 +142,7 @@ class CausalSampling:
             dataset=self.dataset,
             vars=self.vars,
             vols=self.vols,
-            volumes_as_gmm=True,
+            volumes_as_gmm=True if self.vols[0] != "cataract" else False,
             n_components=self.n_components,
             age_estimator=self.age_estimator,
             log_volumes=self.log_volumes
@@ -167,7 +168,7 @@ class CausalSampling:
                     volumes = (torch.log(volumes + self.model["log_shift"]) - self.mu_std_df["mu"][self.vols[0] + "_shift"]) / self.mu_std_df["std"][self.vols[0] + "_shift"]
                 else:
                     volumes = (torch.log(volumes) - self.mu_std_df["mu"][self.vols[0]]) / self.mu_std_df["std"][self.vols[0]]
-            else:
+            elif self.dataset != "retinal":
                 volumes = (volumes - self.mu_std_df["mu"][self.vols[0]]) / self.mu_std_df["std"][self.vols[0]]
             return torch.cat([ages, volumes], dim=1)
         else:
@@ -320,7 +321,15 @@ def estimate_mle(
                 c_means=vols.mean() if log_volumes else df[labels_vol].mean().values,
                 c_std=vols.std() if log_volumes else df[labels_vol].std().values,
             )
-    
+        if labels_vol[0] == "cataract":
+            ## logsitic regression
+            vol_weights, vol_bias = softmax_regression(
+                y=df[labels_vol].values, x=df[vars[0]].values.reshape(-1, 1)
+            )
+            model.update(
+                vol_weights=torch.tensor(vol_weights, dtype=torch.float),
+                vol_bias=torch.tensor(vol_bias, dtype=torch.float)
+            )
     if volumes_as_gmm: ## gussian mixture model
         if dataset == "ukb" or dataset == "retinal":
             vol_gmm, vol_indices = gmm_regression(
@@ -345,9 +354,9 @@ def estimate_mle(
             vol_weights, vol_bias, vol_sigma = mv_linear_regression(
                 y=vols, x=df[["age", "sex"]]
             )
-        model["vol_weights"] = torch.tensor(vol_weights, dtype=torch.float)
-        model["vol_bias"] = torch.tensor(vol_bias, dtype=torch.float)
-        model["vol_sigma"] = torch.tensor(vol_sigma, dtype=torch.float)
+            model["vol_weights"] = torch.tensor(vol_weights, dtype=torch.float)
+            model["vol_bias"] = torch.tensor(vol_bias, dtype=torch.float)
+            model["vol_sigma"] = torch.tensor(vol_sigma, dtype=torch.float)
 
     return model
 
@@ -379,12 +388,15 @@ def sample_from_model(dataset: str, model, num_samples=100):
         C = model["cdr_classes"][torch.multinomial(cdr_prob, num_samples=1)]
 
         X = torch.cat([A, C], dim=1)
+    if dataset == "retinal" and "vol_weights" in model: ## source 1 catract
+        vol_prob = torch.sigmoid(X @ model["vol_weights"].T + model["vol_bias"])
+        V = torch.bernoulli(vol_prob)
 
     if "vol_gmm" in model:
         V = sample_from_gmm_custom(
             x=X, indices=model["vol_indices"], gmm=model["vol_gmm"]
         )
-    else:
+    elif dataset != "retinal":
         mvn = MultivariateNormal(
             loc=torch.zeros_like(model["vol_bias"]),
             covariance_matrix=model["vol_sigma"],
@@ -407,10 +419,16 @@ def sample_from_model_given_age(age, dataset: str, model):
     num_samples = len(age)
     age = age.reshape(-1, 1)
     if dataset == "oasis3" or dataset == "adni":
-        cdr_prob = torch.softmax(X @ model["cdr_weights"].T + model["cdr_bias"], dim=1)
+        cdr_prob = torch.softmax(age @ model["cdr_weights"].T + model["cdr_bias"], dim=1)
         C = model["cdr_classes"][torch.multinomial(cdr_prob, num_samples=1)]
 
         X = torch.cat([age, C], dim=1)
+    ## retinal source 1 cataract
+    if dataset == "retinal" and "vol_weights" in model:
+        if type(age) != torch.Tensor:
+            age = torch.tensor(age, dtype=torch.float32)
+        vol_prob = torch.sigmoid(age @ model["vol_weights"].T + model["vol_bias"])
+        V = torch.bernoulli(vol_prob)
 
     if "vol_gmm" in model:
         if type(age) != torch.Tensor:
@@ -418,12 +436,13 @@ def sample_from_model_given_age(age, dataset: str, model):
         V = sample_from_gmm_custom(
             x=age, indices=model["vol_indices"], gmm=model["vol_gmm"]
         )
-    else:
+    elif dataset != "retinal":
         mvn = MultivariateNormal(
             loc=torch.zeros_like(model["vol_bias"]),
             covariance_matrix=model["vol_sigma"],
         )
-        V = X @ model["vol_weights"].T + model["vol_bias"] + mvn.sample((num_samples,))
+        V = age @ model["vol_weights"].T + model["vol_bias"] + mvn.sample((num_samples,))
+
     if model["vol_model"] == "lognormal":
         V.exp_()
         if model["log_shift"] is not None:
@@ -480,8 +499,8 @@ def preprocess_samples(A, V=None, model=None, dataset:str = None):
                 V = (torch.log(V + model["log_shift"]) - model["c_means"]) / model["c_std"]
             else:
                 V = (torch.log(V) - model["c_means"]) / model["c_std"]
-        else:
-            V = (V - model["c_means"]) / model["c_std"]
+        # else: ## catract (binary)
+            # V = (V - model["c_means"]) / model["c_std"]
     if dataset == "oasis3" or dataset == "adni":
         if dataset == "oasis3":
             A = (A - model["mu_age"]) / model["sigma_age"]

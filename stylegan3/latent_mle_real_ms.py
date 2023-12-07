@@ -58,8 +58,9 @@ def set_dataset(name: str):
         # VARS = ["Age", "Apoe4", "CDGLOBAL"]
         ## ------------------------------------------------------
     elif name == "retinal":
-        VOLS = ["diastolic_bp", "spherical_power_left"]
-        VARS = ["age"] + VOLS
+        VOLS = ["spherical_power_left"]
+        # VOLS = ["diastolic_bp", "spherical_power_left"]
+        VARS = ["age", "cataract"] + VOLS
         ## ------------------------------------------------------
     elif name == "eyepacs":
         VOLS = None
@@ -67,15 +68,7 @@ def set_dataset(name: str):
         ## ------------------------------------------------------
     elif name == "rfmid":
         VOLS = None
-        VARS = ["Disease_Risk", "DR", "ARMD", "MH", "MYA", "BRVO", "TSLN", "ODC", "ODP"]
-        # VARS = [
-        #     #"Disease_Risk",
-        #     "DR","ARMD","MH","DN","MYA",
-        #     "BRVO","TSLN","ERM","LS","MS","CSR","ODC","CRVO",
-        #     "TV","AH","ODP","ODE","ST","AION","PT","RT","RS","CRS",
-        #     "EDN","RPEC","MHL","RP","CWS","CB","ODPM","PRH","MNF","HR",
-        #     "CRAO","TD","CME","PTCR","CF","VH","MCA","VS","BRAO","PLQ","HPED","CL"
-        # ]
+        VARS = ["Disease_Risk", "MH","TSLN"]
     return VARS, VOLS
 
 class SourceSampling:
@@ -121,8 +114,8 @@ class SourceSampling:
         df = self.df.copy()
         if self.log_volumes:
             if self.dataset == "retinal": ## ukb
-                df[self.vols[0]] = np.log(df[self.vols[0]])
-                df[self.vols[1] + "_shift"] = np.log(df[self.vols[1]] + 1e2)
+                # df[self.vols[0]] = np.log(df[self.vols[0]])
+                df[self.vols[0] + "_shift"] = np.log(df[self.vols[0]] + 1e2)
                 df["shift_scale"] = 1e2
             else:
                 df[self.vols] = np.log(df[self.vols])
@@ -173,8 +166,8 @@ class SourceSampling:
             if self.log_volumes:
                 if self.model["log_shift"] is not None:
                     if self.dataset == "retinal":
-                        volumes[:, 1] = (torch.log(volumes[:, 1] + self.model["log_shift"]) - self.mu_std_df["mu"][self.vols[1] + "_shift"]) / self.mu_std_df["std"][self.vols[1] + "_shift"]
-                        volumes[:, 0] = (torch.log(volumes[:, 0]) - self.mu_std_df["mu"][self.vols[0]]) / self.mu_std_df["std"][self.vols[0]]
+                        volumes[:, 1] = (torch.log(volumes[:, 1] + self.model["log_shift"]) - self.mu_std_df["mu"][self.vols[0] + "_shift"]) / self.mu_std_df["std"][self.vols[0] + "_shift"]
+                        # volumes[:, 0] = (torch.log(volumes[:, 0]) - self.mu_std_df["mu"][self.vols[0]]) / self.mu_std_df["std"][self.vols[0]]
                     else:
                         volumes = (torch.log(volumes + self.model["log_shift"]) - self.mu_std_df["mu"][self.vols[0] + "_shift"]) / self.mu_std_df["std"][self.vols[0] + "_shift"]
                 else:
@@ -204,6 +197,8 @@ def get_data(dataset: str, vars: list, path: str = None, image_fnames: list = No
         # elif dataset == "nacc":
         #     temp[-1] = 1 if temp[-1] >= 1.0 else temp[-1]
         new_labels[num, :] = temp
+    if dataset == "eyepacs": ## binary
+        new_labels[new_labels > 0] = 1
     new_labels = pd.DataFrame(new_labels, columns=vars)
     if dataset == "nacc":
         new_labels = new_labels[new_labels["Apoe4"] != 9.0]
@@ -229,7 +224,7 @@ def estimate_beta1d(x, lo=40, hi=70, method="moments", eps=1e-4):
 def estimate_mle(
     df,
     dataset: str,       ## the name of the dataset
-    vars,               ## labels: all variable, containing age, sex, volumes...
+    vars,               ## labels: all variable, containing age, volumes...
     vols,               ## labels: volumes from MRI images
     volumes_as_gmm=True,
     n_components=3,
@@ -349,6 +344,15 @@ def estimate_mle(
                 c_means=vols.mean(axis=0) if log_volumes else df[labels_vol].mean().values,
                 c_std=vols.std(axis=0) if log_volumes else df[labels_vol].std().values,
             )
+        if vars[1] == "cataract":
+            ## logistic regression
+            cataract_weights, cataract_bias = softmax_regression(
+                y=df[vars[1]].values, x=df[vars[0]].values.reshape(-1, 1)
+            )
+            model.update(
+                cataract_weights=torch.tensor(cataract_weights, dtype=torch.float),
+                cataract_bias=torch.tensor(cataract_bias, dtype=torch.float),
+            )
     if labels_vol is not None:
         if volumes_as_gmm: ## gussian mixture model
             if dataset in ["ukb", "retinal", "adni"]:
@@ -358,18 +362,18 @@ def estimate_mle(
                         n_components=n_components,
                         random_state=gmm_random_state,
                     )
-            model["vol_gmm"] = vol_gmm
-            model["vol_indices"] = vol_indices
-            model["log_shift"] = log_shift if log_neg else None
+                model["vol_gmm"] = vol_gmm
+                model["vol_indices"] = vol_indices
+                model["log_shift"] = log_shift if log_neg else None
 
         else: ## multivariate linear regression
             if dataset == "ukb":
                 vol_weights, vol_bias, vol_sigma = mv_linear_regression(
                     y=vols, x=df[["age"]]
                 )
-            model["vol_weights"] = torch.tensor(vol_weights, dtype=torch.float)
-            model["vol_bias"] = torch.tensor(vol_bias, dtype=torch.float)
-            model["vol_sigma"] = torch.tensor(vol_sigma, dtype=torch.float)
+                model["vol_weights"] = torch.tensor(vol_weights, dtype=torch.float)
+                model["vol_bias"] = torch.tensor(vol_bias, dtype=torch.float)
+                model["vol_sigma"] = torch.tensor(vol_sigma, dtype=torch.float)
 
     return model
 
@@ -381,17 +385,18 @@ def estimate_model(
 ):
     if dataset == "eyepacs":
         labels = df[vars].values
-        level_classes = np.unique(labels)
-        level_prob = {}
-        for cls in level_classes:
-            prob = df.loc[df[vars[0]] == cls].shape[0] / len(df)
-            level_prob[cls] = prob
-        return level_prob
+        labels_mu = np.mean(labels, axis=0)
+        # level_classes = np.unique(labels)
+        # level_prob = {}
+        # for cls in level_classes:
+        #     prob = df.loc[df[vars[0]] == cls].shape[0] / len(df)
+        #     level_prob[cls] = prob
+        return labels_mu
     elif dataset == "rfmid":
         cls_prob = {}
-        for var in vars:
+        for var in vars[1:]:
             labels = df[var].values
-            cls_prob[var] =  np.sum(labels)/ len(df)
+            cls_prob[var] = np.sum(labels) / len(df)
         return cls_prob
 
 def sample_from_model(dataset: str, model, num_samples=100):
@@ -427,7 +432,13 @@ def sample_from_model(dataset: str, model, num_samples=100):
             apoe = model["apoe_classes"][torch.multinomial(apoe_prob, num_samples=1)]
             # V = torch.cat((apoe, V), dim=1)
             V = apoe
-
+        elif dataset == "retinal" and "cataract_weights" in model: ## for cataract
+            cataract_prob = torch.sigmoid(X @ model["cataract_weights"].T + model["cataract_bias"])
+            cataract_cls = torch.bernoulli(cataract_prob)
+            if "vol_gmm" in model: ## spherical_power_left
+                V = sample_from_gmm_custom(
+                    x=X, indices=model["vol_indices"], gmm=model["vol_gmm"]
+                )
         else:
             if "vol_gmm" in model:
                 V = sample_from_gmm_custom(
@@ -443,19 +454,23 @@ def sample_from_model(dataset: str, model, num_samples=100):
             V.exp_()
             if model["log_shift"] is not None:
                 if dataset == "retinal":
-                    temp_v = V[:, 1] - model["log_shift"]
-                    V[:, 1] = temp_v
+                    temp_v = V[:, 0] - model["log_shift"]
+                    V[:, 0] = temp_v
                 else:
                     V = V - model["log_shift"]
+        if dataset == "retinal":
+            V = torch.cat([cataract_cls, V], dim=1)
     elif dataset == "eyepacs":
         A = None
-        V = np.random.choice(list(model.keys()), size=(num_samples, 1), p=list(model.values()))
-        return A, torch.tensor(V)
+        V = (torch.rand((num_samples, 1)) < model[0]) * 1.0
+        # V = np.random.choice(list(model.keys()), size=(num_samples, 1), p=list(model.values()))
     elif dataset == "rfmid":
         A = None
-        V = torch.zeros((num_samples, len(model)))
-        for i, var in enumerate(model.keys()):
-            V[:, i] = (torch.rand((num_samples,)) < model[var]) * 1.0
+        V = torch.zeros((num_samples, len(model)+1))
+        V[:, 1:] = (torch.rand((num_samples, 2)) < torch.tensor([model["MH"], model["TSLN"]])) * 1.0
+        disease_sum = torch.sum(V[:, 1:], dim=1)
+        disease_idxs = torch.where(disease_sum > 0)[0]
+        V[disease_idxs, 0] = 1.0
     return A, V
 
 def sample_from_model_given_age(age, dataset: str, model):
@@ -476,7 +491,13 @@ def sample_from_model_given_age(age, dataset: str, model):
         apoe = model["apoe_classes"][torch.multinomial(apoe_prob, num_samples=1)]
         V = apoe
         # V = torch.cat((apoe, V), dim=1)
-
+    elif dataset == "retinal" and "cataract_weights" in model: ## for cataract
+        cataract_prob = torch.sigmoid(age @ model["cataract_weights"].T + model["cataract_bias"])
+        cataract_cls = torch.bernoulli(cataract_prob)
+        if "vol_gmm" in model:
+            V = sample_from_gmm_custom(
+                x=age, indices=model["vol_indices"], gmm=model["vol_gmm"]
+            )
     else:
         if "vol_gmm" in model:
             V = sample_from_gmm_custom(
@@ -492,10 +513,12 @@ def sample_from_model_given_age(age, dataset: str, model):
         V.exp_()
         if model["log_shift"] is not None:
             if dataset == "retinal":
-                temp_v = V[:, 1] - model["log_shift"]
-                V[:, 1] = temp_v
+                temp_v = V[:, 0] - model["log_shift"]
+                V[:, 0] = temp_v
             else:
                 V = V - model["log_shift"]
+    if dataset == "retinal":
+        V = torch.cat([cataract_cls, V], dim=1)
     return age, V
 
 def preprocess_samples(A=None, V=None, model=None, dataset:str = None):
@@ -507,9 +530,9 @@ def preprocess_samples(A=None, V=None, model=None, dataset:str = None):
     elif dataset == "retinal":
         if model["vol_model"] == "lognormal":
             if model["log_shift"] is not None:
-                temp_V = (torch.log(V[:, 1] + model["log_shift"]) - model["c_means"][1]) / model["c_std"][1]
+                temp_V = (torch.log(V[:, 1] + model["log_shift"]) - model["c_means"][0]) / model["c_std"][0]
                 V[:, 1] = temp_V
-                V[:, 0] = (torch.log(V[:, 0]) - model["c_means"][0]) / model["c_std"][0]
+                # V[:, 0] = (torch.log(V[:, 0]) - model["c_means"][0]) / model["c_std"][0]
             else:
                 V = (torch.log(V) - model["c_means"]) / model["c_std"]
         else:
@@ -520,9 +543,9 @@ def preprocess_samples(A=None, V=None, model=None, dataset:str = None):
     #     cdr = torch.tensor(model["cdr_encoder"].transform(V[:, -1].reshape(-1, 1)).toarray())
     #     V = cdr
     elif dataset == "eyepacs":
-        num_classes = len(model.keys())
-        V = F.one_hot(torch.tensor(V, dtype=torch.long), num_classes=num_classes)
-        V = V.squeeze(1)
+        # num_classes = len(model.keys())
+        # V = F.one_hot(torch.tensor(V, dtype=torch.long), num_classes=num_classes)
+        # V = V.squeeze(1)
         return V
     elif dataset == "nacc":
         apoe = torch.tensor(model["apoe_encoder"].transform(V).toarray())
