@@ -245,7 +245,7 @@ def training_loop(
     if rank == 0:
         print('Constructing networks...')
     if training_set.data_name == "retinal" or training_set.data_name == "eyepacs" or training_set.data_name == "rfmid":
-        g_label_dim = training_set.label_dim + training_set1.label_dim + training_set2.label_dim + 3 ## 3 sources (binary)
+        g_label_dim = training_set.label_dim + training_set1.label_dim + training_set2.label_dim + 3 ## 3 sources
     elif training_set.data_name == "ukb" or training_set.data_name == "adni" or training_set.data_name == "nacc":
         g_label_dim = training_set.label_dim + training_set1.label_dim + training_set2.label_dim + 1 ## 3 sources (binary) (age is shared)
     common_kwargs = dict(c_dim=g_label_dim, img_resolution=training_set.resolution, img_channels=training_set.num_channels)

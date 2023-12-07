@@ -137,6 +137,7 @@ def iterate_random_labels(opts, batch_size):
                 c = torch.concat(c).pin_memory().to(opts.device)
                 yield c
         else:
+            dataset.get_label(0)
             while True:
                 c = [dataset.get_label(np.random.randint(len(dataset))) for _i in range(batch_size)]
                 c = torch.from_numpy(np.stack(c)).pin_memory().to(opts.device)
@@ -273,8 +274,12 @@ def compute_feature_stats_for_dataset(opts, detector_url, detector_kwargs, rel_l
     dataset = dnnlib.util.construct_class_by_name(**opts.dataset_kwargs)
     if opts.dataset_kwargs_1 is not None:
         dataset1 = dnnlib.util.construct_class_by_name(**opts.dataset_kwargs_1)
+        ### activate datasets
+        dataset.get_label(0)
+        dataset1.get_label(0)
         concat_dataset = ConcatDataset(dataset, dataset1)
-
+    else:
+        dataset.get_label(0)
     if data_loader_kwargs is None:
         data_loader_kwargs = dict(pin_memory=True, num_workers=3, prefetch_factor=2)
 

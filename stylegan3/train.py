@@ -321,6 +321,7 @@ def main(**kwargs):
     c.G_opt_kwargs = dnnlib.EasyDict(class_name='torch.optim.Adam', betas=[0,0.99], eps=1e-8)
     c.D_opt_kwargs = dnnlib.EasyDict(class_name='torch.optim.Adam', betas=[0,0.99], eps=1e-8)
     if opts.data_name in ["ukb_real", "retinal_real"]:
+        print("use this")
         c.loss_kwargs = dnnlib.EasyDict(class_name='training.loss_single.StyleGAN2Loss')
     else:
         c.loss_kwargs = dnnlib.EasyDict(class_name='training.loss.StyleGAN2Loss')

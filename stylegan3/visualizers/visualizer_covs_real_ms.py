@@ -1,13 +1,13 @@
 ### This file is used to run the visualizer for changing two covariates
 ### c1 is fixed, c2, c3 and c4 are changed for example
-import os
+import os, sys
 import re
 import numpy as np
 import torch
 import click
 from typing import List, Tuple, Union
 import torch.nn.functional as F
-
+sys.path.append("/dhc/home/wei-cheng.lai/projects/msstylegans")
 from utils import load_generator, generate_images
 from training.dataset_real_ms import UKBiobankMRIDataset2D, UKBiobankRetinalDataset, AdniMRIDataset2D, KaggleEyepacsDataset
 from visualizers.visual_two_covs import plot_two_covs_images_dualsources
