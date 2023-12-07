@@ -110,14 +110,24 @@ def launch_training(c, desc, outdir, dry_run):
 
 #----------------------------------------------------------------------------
 
-def init_dataset_kwargs(data, name, use_labels, mode: str, 
-                        # without_volumes: bool =False, 
-                        max_size: tuple = None):
+def init_dataset_kwargs(data, name, use_labels, mode: str,
+                        max_size: tuple = None,
+                        scenario: str = None):
     try:
         ## for UKB
         if name == "ukb":
             dataset_kwargs = dnnlib.EasyDict(
                 class_name='training.dataset.UKBiobankMRIDataset2D', 
+                data_name="ukb",
+                path=data,
+                mode=mode,
+                use_labels=use_labels,
+                max_size=max_size,
+                xflip=False
+            )
+        elif name == "ukb_real":
+            dataset_kwargs = dnnlib.EasyDict(
+                class_name='training.dataset_real_ms.UKBiobankMRIDataset2D', 
                 data_name="ukb",
                 path=data,
                 mode=mode,
@@ -135,15 +145,54 @@ def init_dataset_kwargs(data, name, use_labels, mode: str,
                 max_size=max_size,
                 xflip=False
             )
+        elif name == "retinal_real":
+            dataset_kwargs = dnnlib.EasyDict(
+                class_name='training.dataset_real_ms.UKBiobankRetinalDataset',
+                data_name="retinal",
+                path=data,
+                mode=mode,
+                use_labels=use_labels,
+                max_size=max_size,
+                xflip=False
+            )
         ## for Adni
         elif name == "adni":
             dataset_kwargs = dnnlib.EasyDict(
-                class_name='training.dataset.AdniMRIDataset2D', 
+                class_name='training.dataset_real_ms.AdniMRIDataset2D', 
                 data_name="adni",           
                 path=data,
                 mode=mode,
                 use_labels=use_labels,
-                # without_volumes=without_volumes,
+                max_size=max_size,
+                xflip=False
+            )
+        elif name == "nacc":
+            dataset_kwargs = dnnlib.EasyDict(
+                class_name='training.dataset_real_ms.NACCMRIDataset2D',
+                data_name="nacc",           
+                path=data,
+                mode=mode,
+                use_labels=use_labels,
+                max_size=max_size,
+                xflip=False
+            )
+        elif name == "rfmid":
+            dataset_kwargs = dnnlib.EasyDict(
+                class_name='training.dataset_real_ms.RFMiDDataset',
+                data_name="rfmid",
+                path=data,
+                mode=mode,
+                use_labels=use_labels,
+                max_size=max_size,
+                xflip=False
+            )
+        elif name == "eyepacs":
+            dataset_kwargs = dnnlib.EasyDict(
+                class_name='training.dataset_real_ms.KaggleEyepacsDataset',
+                data_name="eyepacs",
+                path=data,
+                mode=mode,
+                use_labels=use_labels,
                 max_size=max_size,
                 xflip=False
             )
@@ -173,7 +222,10 @@ def init_dataset_kwargs(data, name, use_labels, mode: str,
         dataset_obj = dnnlib.util.construct_class_by_name(**dataset_kwargs) # Subclass of training.dataset.Dataset.
         dataset_kwargs.resolution = dataset_obj.resolution # Be explicit about resolution.
         dataset_kwargs.use_labels = dataset_obj.has_labels # Be explicit about labels.
-        dataset_kwargs.max_size = len(dataset_obj) # Be explicit about dataset size.
+        if mode == "train":
+            dataset_kwargs.max_size = int(len(dataset_obj) / 2) if scenario == "half" else len(dataset_obj)
+        else:
+            dataset_kwargs.max_size = len(dataset_obj)
         return dataset_kwargs, dataset_obj.data_name
     except IOError as err:
         raise click.ClickException(f'--data: {err}')
@@ -205,21 +257,21 @@ def parse_comma_separated_list(s):
 
 # Optional features.
 @click.option('--cond',         help='Train conditional model', metavar='BOOL',                 type=bool, default=True, show_default=True)
-@click.option('--without_volumes', help='Train conditional model without Volumes', metavar='BOOL', type=bool, default=False, show_default=True)
 @click.option('--mirror',       help='Enable dataset x-flips', metavar='BOOL',                  type=bool, default=False, show_default=True)
 @click.option('--aug',          help='Augmentation mode',                                       type=click.Choice(['noaug', 'ada', 'fixed']), default='noaug', show_default=True)
 @click.option('--exact_resume',help='Resume from given exact network pickle',                   type=bool, default=False, show_default=True)
 @click.option('--resume',       help='Resume from given network pickle', metavar='[PATH|URL]',  type=str)
 @click.option('--resume_kimg',  help='Resume from given kilo-images', metavar='INT',           type=int, default=0, show_default=True)
 @click.option('--freezed',      help='Freeze first layers of D', metavar='INT',                 type=click.IntRange(min=0), default=0, show_default=True)
-@click.option('--data_scenario', help='data scenario', metavar='STR',                          type=click.Choice(["low", "high", "lowlow", "highlow"]), 
+@click.option('--data_scenario', help='data scenario', metavar='STR',                          type=click.Choice(["high", "half"]),
                                                                                 default='high', show_default=True)
 
 # Misc hyperparameters.
 @click.option('--p',            help='Probability for --aug=fixed', metavar='FLOAT',            type=click.FloatRange(min=0, max=1), default=0.2, show_default=True)
-@click.option('--target',       help='Target value for --aug=ada', metavar='FLOAT',             type=click.FloatRange(min=0, max=1), default=0.8, show_default=True)
+@click.option('--target',       help='Target value for --aug=ada', metavar='FLOAT',             type=click.FloatRange(min=0, max=1), default=0.6, show_default=True)
 @click.option('--batch-gpu',    help='Limit batch size per GPU', metavar='INT',                 type=click.IntRange(min=1))
-@click.option('--cbase',        help='Capacity multiplier', metavar='INT',                      type=click.IntRange(min=1), default=32768, show_default=True)
+# @click.option('--cbase',        help='Capacity multiplier', metavar='INT',                      type=click.IntRange(min=1), default=32768, show_default=True)
+@click.option('--cbase',        help='Capacity multiplier', metavar='INT',                      type=click.IntRange(min=1), default=16384, show_default=True)
 @click.option('--cmax',         help='Max. feature maps', metavar='INT',                        type=click.IntRange(min=1), default=512, show_default=True)
 @click.option('--glr',          help='G learning rate  [default: varies]', metavar='FLOAT',     type=click.FloatRange(min=0))
 @click.option('--dlr',          help='D learning rate', metavar='FLOAT',                        type=click.FloatRange(min=0), default=0.002, show_default=True)
@@ -268,23 +320,22 @@ def main(**kwargs):
     c.D_kwargs = dnnlib.EasyDict(class_name='training.networks_stylegan2.Discriminator', block_kwargs=dnnlib.EasyDict(), mapping_kwargs=dnnlib.EasyDict(), epilogue_kwargs=dnnlib.EasyDict())
     c.G_opt_kwargs = dnnlib.EasyDict(class_name='torch.optim.Adam', betas=[0,0.99], eps=1e-8)
     c.D_opt_kwargs = dnnlib.EasyDict(class_name='torch.optim.Adam', betas=[0,0.99], eps=1e-8)
-    c.loss_kwargs = dnnlib.EasyDict(class_name='training.loss.StyleGAN2Loss')
+    if opts.data_name in ["ukb_real", "retinal_real"]:
+        c.loss_kwargs = dnnlib.EasyDict(class_name='training.loss_single.StyleGAN2Loss')
+    else:
+        c.loss_kwargs = dnnlib.EasyDict(class_name='training.loss.StyleGAN2Loss')
     c.data_loader_kwargs = dnnlib.EasyDict(pin_memory=True, prefetch_factor=2)
 
     # Training set.
-    if opts.data_scenario == "low" or opts.data_scenario == "lowlow":
-        if opts.data_name == "mnist-thickness-intensity" or opts.data_name == "mnist-thickness-slant":
-            max_size = int(60000 / 3)
-        elif opts.data_name == "ukb":
-            max_size = int(34593 / 4)
-        elif opts.data_name == "adni" and opts.data_scenario == "low": ## not needed
-            max_size = int(7024 / 3)
-    elif opts.data_scenario == "high":
+    if opts.data_scenario == "high":
         max_size = None
+    elif opts.data_scenario == "half":
+        max_size = 50000
 
     c.training_set_kwargs, dataset_name = init_dataset_kwargs(data=opts.data, name=opts.data_name, use_labels=opts.cond, 
                                                               mode="train",
-                                                              max_size=max_size)
+                                                              max_size=max_size,
+                                                              scenario=opts.data_scenario)
     c.validation_set_kwargs, val_dataset_name = init_dataset_kwargs(data=opts.data, name=opts.data_name, use_labels=opts.cond,
                                                                     mode="val",
                                                                     max_size=None)

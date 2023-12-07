@@ -194,18 +194,19 @@ def parse_comma_separated_list(s):
 @click.option('--cond',         help='Train conditional model', metavar='BOOL',                 type=bool, default=True, show_default=True)
 @click.option('--mirror',       help='Enable dataset x-flips', metavar='BOOL',                  type=bool, default=False, show_default=True)
 @click.option('--aug',          help='Augmentation mode',                                       type=click.Choice(['noaug', 'ada', 'fixed']), default='noaug', show_default=True)
-@click.option('--exact_resume',help='Resume from given exact network pickle',                   type=bool, default=False, show_default=True)
+@click.option('--exact_resume', help='Resume from given exact network pickle',                   type=bool, default=False, show_default=True)
 @click.option('--resume',       help='Resume from given network pickle', metavar='[PATH|URL]',  type=str)
 @click.option('--resume_kimg',  help='Resume from given kilo-images', metavar='INT',           type=int, default=0, show_default=True)
 @click.option('--freezed',      help='Freeze first layers of D', metavar='INT',                 type=click.IntRange(min=0), default=0, show_default=True)
-@click.option('--data_scenario', help='data scenario', metavar='STR',                          type=click.Choice(["low", "high", "lowlow", "highlow", "half"]), 
+@click.option('--data_scenario', help='data scenario', metavar='STR',                          type=click.Choice(["high", "half"]), 
                                                                                 default='high', show_default=True)
 
 # Misc hyperparameters.
 @click.option('--p',            help='Probability for --aug=fixed', metavar='FLOAT',            type=click.FloatRange(min=0, max=1), default=0.2, show_default=True)
-@click.option('--target',       help='Target value for --aug=ada', metavar='FLOAT',             type=click.FloatRange(min=0, max=1), default=0.8, show_default=True)
+@click.option('--target',       help='Target value for --aug=ada', metavar='FLOAT',             type=click.FloatRange(min=0, max=1), default=0.6, show_default=True)
 @click.option('--batch-gpu',    help='Limit batch size per GPU', metavar='INT',                 type=click.IntRange(min=1))
-@click.option('--cbase',        help='Capacity multiplier', metavar='INT',                      type=click.IntRange(min=1), default=32768, show_default=True)
+# @click.option('--cbase',        help='Capacity multiplier', metavar='INT',                      type=click.IntRange(min=1), default=32768, show_default=True)
+@click.option('--cbase',        help='Capacity multiplier', metavar='INT',                      type=click.IntRange(min=1), default=16384, show_default=True)
 @click.option('--cmax',         help='Max. feature maps', metavar='INT',                        type=click.IntRange(min=1), default=512, show_default=True)
 @click.option('--glr',          help='G learning rate  [default: varies]', metavar='FLOAT',     type=click.FloatRange(min=0))
 @click.option('--dlr',          help='D learning rate', metavar='FLOAT',                        type=click.FloatRange(min=0), default=0.002, show_default=True)
@@ -258,21 +259,9 @@ def main(**kwargs):
     c.data_loader_kwargs = dnnlib.EasyDict(pin_memory=True, prefetch_factor=2)
 
     # Training set.
-    if opts.data_scenario == "low" or opts.data_scenario == "lowlow":
-        if opts.data_name == "mnist-thickness-intensity" or opts.data_name == "mnist-thickness-slant":
-            max_size = int(60000 / 3)
-            max_size1 = int(60000 / 3)
-        elif opts.data_name == "adni" and opts.data_scenario == "low": ## not needed
-            max_size = int(7024 / 3)
-    elif opts.data_scenario == "high":
+    if opts.data_scenario == "high":
         max_size = None
         max_size1 = None
-    elif opts.data_scenario == "highlow":
-        max_size = None
-        if opts.data_name == "mnist-thickness-intensity" or opts.data_name == "mnist-thickness-slant":
-            max_size1 = int(60000 / 3)
-        elif opts.data_name == "ukb":
-            max_size1 = None
     elif opts.data_scenario == "half":
         max_size = int(60000/2)
         max_size1 = int(60000/2)
@@ -300,6 +289,11 @@ def main(**kwargs):
     c.training_set_kwargs.xflip = opts.mirror
     c.validation_set_kwargs.use_labels = opts.cond
     c.validation_set_kwargs.xflip = opts.mirror
+
+    c.training_set_kwargs1.use_labels = opts.cond
+    c.training_set_kwargs1.xflip = opts.mirror
+    c.validation_set_kwargs1.use_labels = opts.cond
+    c.validation_set_kwargs1.xflip = opts.mirror
 
     # Hyperparameters & settings.
     c.num_gpus = opts.gpus
