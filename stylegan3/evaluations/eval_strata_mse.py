@@ -74,11 +74,11 @@ def calculate_loss(
             cur_c1 = (strata_hist["c1"][stra_c1-1], strata_hist["c1"][stra_c1])
         else:
             cur_c1 = (strata_hist["c1"][stra_c1-1], c1_max)
-        for stra_c2 in strata_idxs:
+        for stra_c2 in strata_idxs if data_name != "retinal" else [0, 1]:
             if stra_c2 == 0:
-                cur_c2 = (c2_min, strata_hist["c2"][stra_c2])
+                cur_c2 = (c2_min, strata_hist["c2"][stra_c2]) if data_name != "retinal" else (0)
             elif stra_c2 == 1:
-                cur_c2 = (strata_hist["c2"][stra_c2-1], strata_hist["c2"][stra_c2])
+                cur_c2 = (strata_hist["c2"][stra_c2-1], strata_hist["c2"][stra_c2]) if data_name != "retinal" else (1)
             else:
                 cur_c2 = (strata_hist["c2"][stra_c2-1], c2_max)
             for stra_c3 in strata_idxs:
@@ -92,12 +92,20 @@ def calculate_loss(
                 gen_imgs = []
                 cov_labels = []
                 ## get samples from datasets (idxs)
-                idxs1 = np.where((labels1[:,0] >= cur_c1[0]) & (labels1[:,0] < cur_c1[1]) & \
-                                (labels1[:,1] >= cur_c2[0]) & (labels1[:,1] < cur_c2[1]) & \
-                                (labels1[:,2] >= cur_c3[0]) & (labels1[:,2] < cur_c3[1]))[0]
-                idxs2 = np.where((labels2[:,0] >= cur_c1[0]) & (labels2[:,0] < cur_c1[1]) & \
-                                (labels2[:,1] >= cur_c2[0]) & (labels2[:,1] < cur_c2[1]) & \
-                                (labels2[:,2] >= cur_c3[0]) & (labels2[:,2] < cur_c3[1]))[0]
+                if data_name == "retinal":
+                    idxs1 = np.where((labels1[:,0] >= cur_c1[0]) & (labels1[:,0] < cur_c1[1]) & \
+                                    (labels1[:,1] == cur_c2[0]) & \
+                                    (labels1[:,2] >= cur_c3[0]) & (labels1[:,2] < cur_c3[1]))[0]
+                    idxs2 = np.where((labels2[:,0] >= cur_c1[0]) & (labels2[:,0] < cur_c1[1]) & \
+                                    (labels2[:,1] == cur_c2[0]) & \
+                                    (labels2[:,2] >= cur_c3[0]) & (labels2[:,2] < cur_c3[1]))[0]
+                else:
+                    idxs1 = np.where((labels1[:,0] >= cur_c1[0]) & (labels1[:,0] < cur_c1[1]) & \
+                                    (labels1[:,1] >= cur_c2[0]) & (labels1[:,1] < cur_c2[1]) & \
+                                    (labels1[:,2] >= cur_c3[0]) & (labels1[:,2] < cur_c3[1]))[0]
+                    idxs2 = np.where((labels2[:,0] >= cur_c1[0]) & (labels2[:,0] < cur_c1[1]) & \
+                                    (labels2[:,1] >= cur_c2[0]) & (labels2[:,1] < cur_c2[1]) & \
+                                    (labels2[:,2] >= cur_c3[0]) & (labels2[:,2] < cur_c3[1]))[0]
                 num_real = len(idxs1) + len(idxs2)
                 if num_real >= 5:
                     ## get samples from GANs
@@ -120,7 +128,7 @@ def calculate_loss(
                             for idx in np.random.choice(idxs2, batch_size//2):
                                 source2_c.append(dataset2.get_norm_label(idx))
                                 source2_img.append(torch.tensor(dataset2[idx][0]))
-                        all_c = source1_c + source2_c
+                        all_c = source1_c + source2_c ## normalized labels
                         all_img = source1_img + source2_img
                         l = torch.from_numpy(np.stack(all_c, axis=0)).to(device)
                         imgs = torch.stack(all_img, dim=0).repeat([1,1,1,1]).to(device)
@@ -139,17 +147,17 @@ def calculate_loss(
                         batch_imgs = generate_images(Gen, z, gen_l if source_gan != "multi" else l, 
                                                     truncation_psi, 
                                                     noise_mode, translate, rotate).permute(0,3,1,2)
-                        if batch_imgs.shape[1] == 3:
-                            mu=[0.485, 0.456, 0.406],
-                            std=[0.229, 0.224, 0.225]
-                            batch_imgs = batch_imgs.div(255).cpu().detach()
-                            imgs = imgs.div(255).cpu().detach()
-                            for i in range(len(mu)):
-                                batch_imgs[:, i, :, :] = (batch_imgs[:, i, :, :] - mu[i]) / std[i]
-                                imgs[:, i, :, :] = (imgs[:, i, :, :] - mu[i]) / std[i]
-                        else:
-                            batch_imgs = batch_imgs.div(255).cpu().detach()
-                            imgs = imgs.div(255).cpu().detach()
+                        # if batch_imgs.shape[1] == 3:
+                        #     mu=[0.485, 0.456, 0.406],
+                        #     std=[0.229, 0.224, 0.225]
+                        #     batch_imgs = batch_imgs.div(255).cpu().detach()
+                        #     imgs = imgs.div(255).cpu().detach()
+                        #     for i in range(len(mu)):
+                        #         batch_imgs[:, i, :, :] = (batch_imgs[:, i, :, :] - mu[i]) / std[i]
+                        #         imgs[:, i, :, :] = (imgs[:, i, :, :] - mu[i]) / std[i]
+                        # else:
+                        batch_imgs = batch_imgs.div(255).cpu().detach()
+                        imgs = imgs.div(255).cpu().detach()
                         gen_imgs.append(batch_imgs)
                         real_imgs.append(imgs)
                         cov_labels.append(l) ## all covariates
@@ -160,14 +168,26 @@ def calculate_loss(
                     for key, value in covariates["cov"].items():
                         cov = value
                         ### separate the covariates and regression models
-                        mse_err, mae_err, corr, scores_df = calc_mean_scores(gen_imgs, real_imgs, 
+                        if key == "cataract":
+                            metric0, metric1, corr, scores_df = calc_mean_scores(gen_imgs, real_imgs, 
                                                                             cov_labels[:, cov].reshape(-1, 1),
                                                                             regr_ml[key],
                                                                             batch_size=64)
-                        print(f"strata: {cur_c1}, {cur_c2}, {cur_c3}, MSE: {mse_err}, MAE: {mae_err}, CORR: {corr}")
+                            accuracy, precision = metric0
+                            recall, f1 = metric1
+                            print(f"strata: {cur_c1}, {cur_c2}, {cur_c3}, ACC: {accuracy}, PRE: {precision}, CORR: {corr}")
+                            print(f"strata: {cur_c1}, {cur_c2}, {cur_c3}, REC: {recall}, F1: {f1}")
+                            scores_dict[key].append(np.array([num_real, cur_c1[0], cur_c1[1], cur_c2[0], cur_c2[1],
+                                cur_c3[0], cur_c3[1], accuracy, precision, recall, f1, corr])) ##, corr
+                        else:
+                            mse_err, mae_err, corr, scores_df = calc_mean_scores(gen_imgs, real_imgs, 
+                                                                            cov_labels[:, cov].reshape(-1, 1),
+                                                                            regr_ml[key],
+                                                                            batch_size=64)
+                            print(f"strata: {cur_c1}, {cur_c2}, {cur_c3}, MSE: {mse_err}, MAE: {mae_err}, CORR: {corr}")
                         ### save the evaluation analysis to a json file
-                        scores_dict[key].append(np.array([num_real, cur_c1[0], cur_c1[1], cur_c2[0], cur_c2[1],
-                            cur_c3[0], cur_c3[1], mse_err, mae_err, corr])) ##mse, mae, corr
+                            scores_dict[key].append(np.array([num_real, cur_c1[0], cur_c1[1], cur_c2[0], cur_c2[1],
+                                cur_c3[0], cur_c3[1], mse_err, mae_err, corr])) ##mse, mae, corr
                         strata_predictions_dict[key].append(scores_df)
     for key, value in covariates["cov"].items():
         scores_dict[key] = np.stack(scores_dict[key], axis=0)
@@ -227,8 +247,14 @@ def run_stratified_mse(opts):
     network_pkl = opts.network_pkl
     metric_jsonl = opts.metric_jsonl
     regr_model0 = opts.regr_model0
+    which_model0 = opts.which_model0
+    is_new_model0 = opts.is_new_model0
     regr_model1 = opts.regr_model1
+    which_model1 = opts.which_model1
+    is_new_model1 = opts.is_new_model1
     regr_model2 = opts.regr_model2
+    which_model2 = opts.which_model2
+    is_new_model2 = opts.is_new_model2
     data_path1 = opts.data_path1
     data_path2 = opts.data_path2
     source_gan = opts.source_gan
@@ -259,7 +285,8 @@ def run_stratified_mse(opts):
     elif dataset == "ukb":
         cov_dict = {"age": 0, "ventricle": 1, "grey_matter": 2}
     elif dataset == "retinal":
-        cov_dict = {"age": 0, "diastolic": 1, "spherical": 2}
+        # cov_dict = {"age": 0, "diastolic": 1, "spherical": 2}
+        cov_dict = {"age": 0, "cataract": 1, "spherical": 2}
 
     covariates_info = dict(
         c1_min = c1_min, c1_max = c1_max,
@@ -278,9 +305,16 @@ def run_stratified_mse(opts):
         metric_jsonl=metric_jsonl,
         use_cuda=True
     )
-    regr_model0 = load_regression_model(regr_model0).to(device)
-    regr_model1 = load_regression_model(regr_model1).to(device)
-    regr_model2 = load_regression_model(regr_model2).to(device)
+    regr_model0 = load_regression_model(regr_model0, which_model=which_model0,
+                                        is_new_model=is_new_model0).to(device)
+    regr_model1 = load_regression_model(regr_model1, 
+                                        which_model=which_model1,
+                                        ncls=2 if dataset == "retinal" else None,
+                                        task="classification" if dataset == "retinal" else "regression",
+                                        is_new_model=is_new_model1).to(device)
+
+    regr_model2 = load_regression_model(regr_model2, which_model=which_model2,
+                                        is_new_model=is_new_model2).to(device)
     ### within strata (c1, c2, c3), calculate MSE, MAE
     scores, predictions_dict = calculate_loss(
         data_name = dataset,
@@ -304,7 +338,15 @@ def run_stratified_mse(opts):
         rotate=rotate
     )
     for key, value in covariates_info["cov"].items():
-        scores_df = pd.DataFrame(scores[key], columns=["num_samples",
+        if key == "cataract":
+            scores_df = pd.DataFrame(scores[key], columns=["num_samples",
+                                                "c1_min", "c1_max", 
+                                                "c2_min", "c2_max", 
+                                                "c3_min", "c3_max", 
+                                                "accuracy", "precision", "recall", 
+                                                "f1", "corr"])
+        else:
+            scores_df = pd.DataFrame(scores[key], columns=["num_samples",
                                                 "c1_min", "c1_max", 
                                                 "c2_min", "c2_max", 
                                                 "c3_min", "c3_max", 
@@ -319,8 +361,14 @@ def run_stratified_mse(opts):
 @click.option('--network_specific', 'network_pkl', help='Network pickle filepath', default=None, required=False)
 @click.option('--network', 'metric_jsonl', help='Metric jsonl file for one training', default=None, required=False)
 @click.option('--regr_model0', 'regr_model0', help='Regression model', type=str, required=True)
+@click.option('--which_model0', 'which_model0', help='Which model is trained', type=str, required=True)
+@click.option('--is_new_model0', 'is_new_model0', help='Whether the model0 is new', type=bool, default=True, show_default=True)
 @click.option('--regr_model1', 'regr_model1', help='Regression model', type=str, required=True)
+@click.option('--which_model1', 'which_model1', help='Which model is trained', type=str, required=True)
+@click.option('--is_new_model1', 'is_new_model1', help='Whether the model1 is new', type=bool, default=True, show_default=True)
 @click.option('--regr_model2', 'regr_model2', help='Regression model', type=str, required=True)
+@click.option('--which_model2', 'which_model2', help='Which model is trained', type=str, required=True)
+@click.option('--is_new_model2', 'is_new_model2', help='Whether the model2 is new', type=bool, default=True, show_default=True)
 @click.option('--dataset', 'dataset', type=click.Choice(['mnist-thickness-intensity-slant', 'ukb',
                                                          'retinal', None]),
               default=None, show_default=True)
@@ -347,8 +395,14 @@ def main(**kwargs):
         "gen_specific": opts.network_pkl,
         "gen": opts.metric_jsonl,
         "regr_model0": opts.regr_model0,
+        "which_model0": opts.which_model0,
+        "is_new_model0": opts.is_new_model0,
         "regr_model1": opts.regr_model1,
+        "which_model1": opts.which_model1,
+        "is_new_model1": opts.is_new_model1,
         "regr_model2": opts.regr_model2,
+        "which_model2": opts.which_model2,
+        "is_new_model2": opts.is_new_model2,
         "dataset": opts.dataset, 
         "data_path1": opts.data_path1, "data_path2": opts.data_path2,
         "num_samples": opts.num_samples, "out_dir": opts.outdir}

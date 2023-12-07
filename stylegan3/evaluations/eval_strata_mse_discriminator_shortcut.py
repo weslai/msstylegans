@@ -7,6 +7,7 @@ import pandas as pd
 import torch
 sys.path.append("/dhc/home/wei-cheng.lai/projects/msstylegans")
 import dnnlib
+from copy import deepcopy
 
 ### --- Own --- ###
 from eval_utils import calc_prediction_disc
@@ -76,6 +77,8 @@ def calculate_loss(
                     cur_c3 = (strata_hist["c3"][stra_c3-1], c3_max)
                 real_imgs = []
                 gen_imgs = []
+                disc_real_imgs = []
+                disc_gen_imgs = []
                 cov_labels = []
                 ## get samples from datasets (idxs)
                 idxs1 = np.where((labels1[:,0] >= cur_c1[0]) & (labels1[:,0] < cur_c1[1]) & \
@@ -126,6 +129,11 @@ def calculate_loss(
                                                     truncation_psi, 
                                                     noise_mode, translate, rotate).permute(0,3,1,2)
                         if imgs.shape[1] == 3:
+                            disc_gen_img = deepcopy(batch_imgs)
+                            disc_real_img = deepcopy(imgs)
+                            disc_gen_img = (disc_gen_img.to(torch.float32) / 127.5 - 1).cpu().detach()
+                            disc_real_img = (disc_real_img.to(torch.float32) / 127.5 - 1).cpu().detach()
+
                             mu=[0.485, 0.456, 0.406],
                             std=[0.229, 0.224, 0.225]
                             batch_imgs = batch_imgs.div(255).cpu().detach()                        
@@ -134,12 +142,20 @@ def calculate_loss(
                                 batch_imgs[:, i, :, :] = (batch_imgs[:, i, :, :] - mu[i]) / std[i]
                                 imgs[:, i, :, :] = (imgs[:, i, :, :] - mu[i]) / std[i]
                         else:
+                            disc_gen_img = deepcopy(batch_imgs)
+                            disc_real_img = deepcopy(imgs)
+                            disc_gen_img = (disc_gen_img.to(torch.float32) / 127.5 - 1).cpu().detach()
+                            disc_real_img = (disc_real_img.to(torch.float32) / 127.5 - 1).cpu().detach()
                             batch_imgs = batch_imgs.div(255).cpu().detach()
                             imgs = imgs.div(255).cpu().detach()
+                        disc_gen_imgs.append(disc_gen_img)
+                        disc_real_imgs.append(disc_real_img)
                         gen_imgs.append(batch_imgs)
                         real_imgs.append(imgs)
                         cov_labels.append(l) ## all covariates
                     ## here we have synth images, real images, and covariates (real labels)
+                    disc_gen_imgs = torch.cat(disc_gen_imgs, dim=0).repeat([1,1,1,1]).to(device)## (batch_size, channel, pixel, pixel)
+                    disc_real_imgs = torch.cat(disc_real_imgs, dim=0).repeat([1,1,1,1]).to(device)## (batch_size, channel, pixel, pixel)
                     gen_imgs = torch.cat(gen_imgs, dim=0).repeat([1,1,1,1]).to(device)## (batch_size, channel, pixel, pixel)
                     real_imgs = torch.cat(real_imgs, dim=0).repeat([1,1,1,1]).to(device)## (batch_size, channel, pixel, pixel)
                     cov_labels = torch.cat(cov_labels, dim=0).to(device)
@@ -147,7 +163,8 @@ def calculate_loss(
                     for key, value in covariates["cov"].items():
                         cov = value
                         ### separate the covariates and regression models
-                        real_errs, gen_errs, corrs, scores_df = calc_prediction_disc(gen_imgs, real_imgs, 
+                        real_errs, gen_errs, corrs, scores_df = calc_prediction_disc(disc_gen_imgs, disc_real_imgs,
+                                                                                   gen_imgs, real_imgs, 
                                                                                    cov_labels[:, cov].reshape(-1, 1), 
                                                                                    cov, regr_ml[key], Disc,
                                                                                    batch_size=64)

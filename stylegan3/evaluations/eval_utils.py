@@ -11,6 +11,7 @@ import json
 import dnnlib
 from torchmetrics.image.fid import FrechetInceptionDistance
 from torchmetrics import MeanSquaredError, MeanAbsoluteError
+from torchmetrics import Accuracy, Precision, Recall, F1Score
 
 from metrics.metric_main import is_valid_metric, _metric_dict
 ### -----------
@@ -163,6 +164,7 @@ def calc_mean_scores(
     realimg_dist,
     true_labels,
     regr_model,
+    covariate,
     batch_size=64
 ):
     """
@@ -184,10 +186,28 @@ def calc_mean_scores(
     gen_predictions = torch.concat(gen_predictions, axis=0).to(device=true_labels.device)
     real_predictions = torch.concat(real_predictions, axis=0).to(device=true_labels.device)
 
-    mse = MeanSquaredError().to(device=true_labels.device)
-    mse_score = mse(gen_predictions, real_predictions).cpu().detach().numpy()
-    mae = MeanAbsoluteError().to(device=true_labels.device)
-    mae_score = mae(gen_predictions, real_predictions).cpu().detach().numpy()
+    if covariate in ["cataract", "disease_risk", "MH", "TSLN", "apoe4", "level"]:
+        if covariate != "apoe4":
+            accuracy = Accuracy(task="binary").to(device=true_labels.device)
+            precision = Precision(task="binary").to(device=true_labels.device)
+            recall = Recall(task="binary").to(device=true_labels.device)
+            f1 = F1Score(task="binary").to(device=true_labels.device)
+        else:
+            ncls = 3
+            accuracy = Accuracy(task="multiclass", num_classes=ncls).to(device=true_labels.device)
+            precision = Precision(task="multiclass", num_classes=ncls).to(device=true_labels.device)
+            recall = Recall(task="multiclass", num_classes=ncls).to(device=true_labels.device)
+            f1 = F1Score(task="multiclass", num_classes=ncls).to(device=true_labels.device)
+        accuracy_score = accuracy(gen_predictions, true_labels).cpu().detach().numpy()
+        precision_score = precision(gen_predictions, true_labels).cpu().detach().numpy()
+        recall_score = recall(gen_predictions, true_labels).cpu().detach().numpy()
+        f1_score = f1(gen_predictions, true_labels).cpu().detach().numpy()
+
+    else:
+        mse = MeanSquaredError().to(device=true_labels.device)
+        mse_score = mse(gen_predictions, real_predictions).cpu().detach().numpy()
+        mae = MeanAbsoluteError().to(device=true_labels.device)
+        mae_score = mae(gen_predictions, real_predictions).cpu().detach().numpy()
 
     gen_predictions = gen_predictions.cpu().detach().numpy()
     real_predictions = real_predictions.cpu().detach().numpy()
@@ -199,7 +219,10 @@ def calc_mean_scores(
     corr, _ = stats.pearsonr(gen_predictions_df.values.flatten(), real_predictions_df.values.flatten())
 
     predictions_df = pd.concat([gen_predictions_df, real_predictions_df, true_labels_df], axis=1)
-    return mse_score, mae_score, corr, predictions_df
+    if covariate in ["cataract", "disease_risk", "MH", "TSLN", "apoe4", "level"]:
+        return (accuracy_score, precision_score), (recall_score, f1_score), corr, predictions_df
+    else:
+        return mse_score, mae_score, corr, predictions_df
 
 def calc_mean_scores_disc(
     genimg_dist,
