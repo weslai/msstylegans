@@ -300,7 +300,7 @@ class UKBiobankRetinalDataset(ImageFolderDataset):
                 if s.startswith("source"):
                     self.which_source = s
                     break
-        self.log_volumes = get_settings(data_name, self.which_source)
+        self.log_volumes = get_settings(data_name)
         super().__init__(data_name, self.mode, path, resolution, **super_kwargs)
     
     def _get_mu_std(self, labels=None):
@@ -336,22 +336,20 @@ class UKBiobankRetinalDataset(ImageFolderDataset):
             age_std = np.std(labels[:, 0]),
             age_min = np.min(labels[:, 0]),
             age_max = np.max(labels[:, 0]),
-            diastolic_bp_mu = np.mean(np.log(labels[:, 1])) if self.log_volumes else np.mean(labels[:, 1]),
-            diastolic_bp_std = np.std(np.log(labels[:, 1])) if self.log_volumes else np.std(labels[:, 1]),
+            cataract_mu = np.mean(labels[:, 1]),
+            cataract_std = np.std(labels[:, 1]),
             spherical_power_left_mu = np.mean(np.log(labels[:, 2] + 1e2)) if self.log_volumes else np.mean(labels[:, 2]),
             spherical_power_left_std = np.std(np.log(labels[:, 2] + 1e2)) if self.log_volumes else np.std(labels[:, 2]),
         )
         return model
 
-    def _normalise_labels(self, age, diastolic_bp=None, spherical_power_left=None):
+    def _normalise_labels(self, age, cataract=None, spherical_power_left=None):
         ## zero mean normalisation
         age = (age - self.model["age_min"]) / (self.model["age_max"] - self.model["age_min"])
         if self.log_volumes:
-            diastolic_bp = np.log(diastolic_bp)
             spherical_power_left = np.log(spherical_power_left + 1e2)
-        diastolic_bp = (diastolic_bp - self.model["diastolic_bp_mu"]) / self.model["diastolic_bp_std"]
         spherical_power_left = (spherical_power_left - self.model["spherical_power_left_mu"]) / self.model["spherical_power_left_std"]
-        samples = np.concatenate([age, diastolic_bp, spherical_power_left], 1)
+        samples = np.concatenate([age, cataract, spherical_power_left], 1)
         return samples
 
     def _load_raw_labels(self):
@@ -364,7 +362,7 @@ class UKBiobankRetinalDataset(ImageFolderDataset):
             return None
         labels = dict(labels)
         labels = [labels[fname.replace("\\", "/")] for fname in self._image_fnames] ## a dict 
-        self.vars = ["age", "diastolic_bp", "spherical_power_left"]
+        self.vars = ["age", "cataract", "spherical_power_left"]
 
         new_labels = np.zeros(shape=(len(labels), len(self.vars)), dtype=np.float32)
         for num, l in enumerate(labels):
@@ -374,7 +372,7 @@ class UKBiobankRetinalDataset(ImageFolderDataset):
         self.model = self._get_mu_std(new_labels)
         new_labels = self._normalise_labels(
             age=new_labels[:, 0].reshape(-1, 1),
-            diastolic_bp=new_labels[:, 1].reshape(-1, 1),
+            cataract=new_labels[:, 1].reshape(-1, 1),
             spherical_power_left=new_labels[:, 2].reshape(-1, 1)
         )
         return new_labels
@@ -399,7 +397,7 @@ class UKBiobankMRIDataset2D(ImageFolderDataset):
                 if s.startswith("source"):
                     self.which_source = s
                     break
-        self.log_volumes = get_settings(data_name, self.which_source)
+        self.log_volumes = get_settings(data_name)
 
         super().__init__(data_name, self.mode, path, resolution, **super_kwargs)
     
@@ -749,6 +747,8 @@ class KaggleEyepacsDataset(ImageFolderDataset):
             i = list(l[self.vars[0]].items())[0][0]
             temp = l[self.vars[0]][str(i)]
             new_labels[num] = temp
+        ## make it binary
+        new_labels[new_labels > 0] = 1
         return new_labels
 ## --------------------------------------------------------------------------
 class RFMiDDataset(ImageFolderDataset):
@@ -782,8 +782,8 @@ class RFMiDDataset(ImageFolderDataset):
         #     "EDN","RPEC","MHL","RP","CWS","CB","ODPM","PRH","MNF","HR",
         #     "CRAO","TD","CME","PTCR","CF","VH","MCA","VS","BRAO","PLQ","HPED","CL"
         # ]
-        self.vars = ["Disease_Risk", "DR", "ARMD", "MH", "MYA", "BRVO", "TSLN", "ODC", "ODP"]
-
+        # self.vars = ["Disease_Risk", "DR", "ARMD", "MH", "MYA", "BRVO", "TSLN", "ODC", "ODP"]
+        self.vars = ["Disease_Risk", "MH", "TSLN"]
         new_labels = np.zeros(shape=(len(labels), len(self.vars)), dtype=np.float32)
         for num, l in enumerate(labels):
             i = list(l[self.vars[0]].items())[0][0]
@@ -894,7 +894,7 @@ class NACCMRIDataset2D(ImageFolderDataset):
         return new_labels
 ## --------------------------------------------------------------------------
 ## get settings
-def get_settings(dataset: str, which_source: str = None):
+def get_settings(dataset: str):
     if dataset == "ukb":
         log_volumes = True
     elif dataset == "adni":
@@ -902,8 +902,5 @@ def get_settings(dataset: str, which_source: str = None):
     elif dataset == "nacc":
         log_volumes = False
     elif dataset == "retinal":
-        if which_source == "source1":
-            log_volumes = True
-        elif which_source == "source2":
-            log_volumes = True
+        log_volumes = True
     return log_volumes

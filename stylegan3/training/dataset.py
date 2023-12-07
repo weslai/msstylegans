@@ -347,9 +347,13 @@ class UKBiobankRetinalDataset(ImageFolderDataset):
             c_additional_mu = np.mean(np.log(labels[:, 1])) if self.log_volumes else np.mean(labels[:, 1])
             c_additional_std = np.std(np.log(labels[:, 1])) if self.log_volumes else np.std(labels[:, 1])
         if which_source == "source1":
+            # model.update(
+            #     diastolic_bp_mu = c_additional_mu,
+            #     diastolic_bp_std = c_additional_std
+            # )
             model.update(
-                diastolic_bp_mu = c_additional_mu,
-                diastolic_bp_std = c_additional_std
+                cataract_mu = c_additional_mu,
+                cataract_std = c_additional_std
             )
         elif which_source == "source2":
             model.update(
@@ -358,14 +362,15 @@ class UKBiobankRetinalDataset(ImageFolderDataset):
             )
         return model
 
-    def _normalise_labels(self, age, diastolic_bp=None, spherical_power_left=None):
+    def _normalise_labels(self, age, cataract=None, spherical_power_left=None):
         ## zero mean normalisation
         age = (age - self.model["age_min"]) / (self.model["age_max"] - self.model["age_min"])
         if self.which_source == "source1":
-            if self.log_volumes:
-                diastolic_bp = np.log(diastolic_bp)
-            diastolic_bp = (diastolic_bp - self.model["diastolic_bp_mu"]) / self.model["diastolic_bp_std"]
-            samples = np.concatenate([age, diastolic_bp], 1)
+            # if self.log_volumes:
+            #     diastolic_bp = np.log(diastolic_bp)
+            # diastolic_bp = (diastolic_bp - self.model["diastolic_bp_mu"]) / self.model["diastolic_bp_std"]
+            samples = np.concatenate([age, cataract], 1)
+            # samples = np.concatenate([age, diastolic_bp], 1)
         elif self.which_source == "source2":
             if self.log_volumes:
                 spherical_power_left = np.log(spherical_power_left + 1e2)
@@ -385,7 +390,8 @@ class UKBiobankRetinalDataset(ImageFolderDataset):
         labels = [labels[fname.replace("\\", "/")] for fname in self._image_fnames] ## a dict 
 
         if self.which_source == "source1":
-            self.vars = ["age", "diastolic_bp"]
+            # self.vars = ["age", "diastolic_bp"]
+            self.vars = ["age", "cataract"]
         elif self.which_source == "source2":
             self.vars = ["age", "spherical_power_left"]
         else:
@@ -400,7 +406,7 @@ class UKBiobankRetinalDataset(ImageFolderDataset):
         if self.which_source == "source1":
             new_labels = self._normalise_labels(
                 age=new_labels[:, 0].reshape(-1, 1),
-                diastolic_bp=new_labels[:, 1].reshape(-1, 1)
+                cataract=new_labels[:, 1].reshape(-1, 1)
             )
         elif self.which_source == "source2":
             new_labels = self._normalise_labels(
@@ -772,7 +778,7 @@ def get_settings(dataset: str, which_source: str = None):
         log_volumes = False
     elif dataset == "retinal":
         if which_source == "source1":
-            log_volumes = True
+            log_volumes = False
         elif which_source == "source2":
             log_volumes = True
     return log_volumes

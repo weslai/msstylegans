@@ -79,6 +79,10 @@ class StyleGAN2Loss(Loss):
                     gen_img_pred = gen_outputs_d[:, 0]
                     gen_cmap_pred = gen_outputs_d[:, 1:4]
                     gen_digit_pred = gen_outputs_d[:, 4:]
+                elif real_img.shape[1] == 3: ## special case for retinal (source 1 is binary) channel is three
+                    gen_img_pred = gen_outputs_d[:, 0]
+                    gen_cmap_pred = gen_outputs_d[:, [1, -1]] ## age and cylindrical
+                    gen_digit_pred = gen_outputs_d[:, 2] ## cataract
                 elif gen_outputs_d.shape[1] > 1:
                     gen_img_pred = gen_outputs_d[:, 0]
                     gen_cmap_pred = gen_outputs_d[:, 1:]
@@ -101,6 +105,13 @@ class StyleGAN2Loss(Loss):
                     training_stats.report('Loss/scores/fake_labels', mse_loss)
                     training_stats.report('Loss/scores/fake_digits(ce loss)', ce_loss)
                     loss_Gmain = bce_loss + (mse_loss + ce_loss) * lambda_
+                elif real_img.shape[1] == 3: ## retinal
+                    mse_loss = torch.nn.functional.mse_loss(gen_cmap_pred, gen_c[:, [0, -1]])
+                    bce_loss_cataract = torch.nn.functional.binary_cross_entropy(
+                        torch.sigmoid(gen_digit_pred), gen_c[:, 1])
+                    training_stats.report('Loss/scores/fake_labels', mse_loss)
+                    training_stats.report('Loss/scores/fake_class(bce loss)', bce_loss_cataract)
+                    loss_Gmain = bce_loss + (mse_loss + bce_loss_cataract) * lambda_
                 elif gen_outputs_d.shape[1] > 1: ## mri or retinal
                     mse_loss = torch.nn.functional.mse_loss(gen_cmap_pred, gen_c)
                     training_stats.report('Loss/scores/fake_labels', mse_loss)
@@ -140,6 +151,10 @@ class StyleGAN2Loss(Loss):
                     gen_img_pred = gen_outputs_d[:, 0]
                     gen_cmap_pred = gen_outputs_d[:, 1:4]
                     gen_digit_pred = gen_outputs_d[:, 4:]
+                elif real_img.shape[1] == 3: ## special case for retinal (source 1 is binary) channel is three
+                    gen_img_pred = gen_outputs_d[:, 0]
+                    gen_cmap_pred = gen_outputs_d[:, [1, -1]] ## age and cylindrical
+                    gen_digit_pred = gen_outputs_d[:, 2] ## cataract
                 elif gen_outputs_d.shape[1] > 1:
                     gen_img_pred = gen_outputs_d[:, 0]
                     gen_cmap_pred = gen_outputs_d[:, 1:]
@@ -162,6 +177,8 @@ class StyleGAN2Loss(Loss):
                 #     training_stats.report('Loss/scores/fake_labels', mse_loss)
                 #     training_stats.report('Loss/scores/fake_digits(ce loss)', ce_loss)
                 #     loss_Dgen = bce_loss + (mse_loss + ce_loss) * lambda_
+                # elif real_img.shape[1] == 3:
+                #     pass
                 # elif gen_outputs_d.shape[1] > 1:
                 #     mse_loss = torch.nn.functional.mse_loss(gen_cmap_pred, gen_c)
                 #     training_stats.report('Loss/scores/fake_labels', mse_loss)
@@ -184,6 +201,10 @@ class StyleGAN2Loss(Loss):
                     real_img_pred = real_outputs_d[:, 0]
                     real_cmap_pred = real_outputs_d[:, 1:4]
                     real_digit_pred = real_outputs_d[:, 4:]
+                elif real_img.shape[1] == 3: ## special case for retinal (source 1 is binary) channel is three
+                    real_img_pred = real_outputs_d[:, 0]
+                    real_cmap_pred = real_outputs_d[:, [1, -1]] ## age and cylindrical
+                    real_digit_pred = real_outputs_d[:, 2] ## cataract
                 elif real_outputs_d.shape[1] > 1:
                     real_img_pred = real_outputs_d[:, 0]
                     real_cmap_pred = real_outputs_d[:, 1:]
@@ -206,6 +227,11 @@ class StyleGAN2Loss(Loss):
                         real_digits = torch.where(real_c[:, 3:] == 1)[1]
                         ce_loss = torch.nn.functional.cross_entropy(real_digit_pred, real_digits.long())
                         loss_Dreal = bce_loss + (mse_loss + ce_loss) * lambda_
+                    elif real_img.shape[1] == 3: ## retinal
+                        mse_loss = torch.nn.functional.mse_loss(real_cmap_pred, real_c[:, [0, -1]])
+                        bce_loss_cataract = torch.nn.functional.binary_cross_entropy(
+                            torch.sigmoid(real_digit_pred), real_c[:, 1])
+                        loss_Dreal = bce_loss + (mse_loss + bce_loss_cataract) * lambda_
                     elif real_outputs_d.shape[1] > 1:
                         mse_loss = torch.nn.functional.mse_loss(real_cmap_pred, real_c)
                         loss_Dreal = bce_loss + mse_loss * lambda_
