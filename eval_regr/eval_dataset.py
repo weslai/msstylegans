@@ -16,6 +16,7 @@ import json
 import torch
 import torch.nn.functional as F
 import torchvision.transforms as transforms
+from sklearn.preprocessing import OneHotEncoder
 import stylegan3.dnnlib as dnnlib
 import nibabel as nib
 
@@ -113,10 +114,10 @@ class Dataset(torch.utils.data.Dataset):
     
     def get_norm_label(self, idx):
         label = self._get_norm_labels()[self._raw_idx[idx]]
-        if label.dtype == np.int64:
-            onehot = np.zeros(self.label_shape, dtype=np.float32)
-            onehot[label] = 1
-            label = onehot
+        # if label.dtype == np.int64:
+        #     onehot = np.zeros(self.label_shape, dtype=np.float32)
+        #     onehot[label] = 1
+        #     label = onehot
         return label.copy()
 
     def get_details(self, idx):
@@ -195,7 +196,7 @@ class ImageFolderDataset(Dataset):
             raise IOError('Path must point to a directory or zip')
 
         PIL.Image.init()
-        if data_name in ["adni", "ukb"]:
+        if data_name in ["adni", "ukb", "nacc"]:
             self._image_fnames = sorted(fname for fname in self._all_fnames if self._file_ext(fname) in ".gz")
         else:
             self._image_fnames = sorted(fname for fname in self._all_fnames if self._file_ext(fname) in PIL.Image.EXTENSION)
@@ -259,39 +260,40 @@ class ImageFolderDataset(Dataset):
     
     def __getitem__(self, idx):
         image = self._load_raw_image(self._raw_idx[idx])
-        self.image_arr = self.image_arr.transpose(1, 2, 0) # CHW => HWC
-        if self.image_arr.shape[-1] == 3:
-        # if image.shape[-1] == 3:
+        # self.image_arr = self.image_arr.transpose(1, 2, 0) # CHW => HWC
+        image = image.transpose(1, 2, 0) # CHW => HWC
+        # if self.image_arr.shape[-1] == 3:
+        if image.shape[-1] == 3:
+            image = PIL.Image.fromarray((image * 255).astype(np.uint8))
             if self._mode == "train":
                 compose = transforms.Compose([
                     transforms.RandomRotation(degrees=90),
                     transforms.RandomHorizontalFlip(p=0.3),
                     transforms.ToTensor(),
-                    transforms.Normalize(
-                        mean=[0.485, 0.456, 0.406],
-                        std=[0.229, 0.224, 0.225]
-                    )
+                    # transforms.Normalize(
+                    #     mean=[0.485, 0.456, 0.406],
+                    #     std=[0.229, 0.224, 0.225]
+                    # )
                 ])
             else:
-                normalize = transforms.Normalize(
-                    mean=[0.485, 0.456, 0.406],
-                    std=[0.229, 0.224, 0.225]
-                )
+                # normalize = transforms.Normalize(
+                #     mean=[0.485, 0.456, 0.406],
+                #     std=[0.229, 0.224, 0.225]
+                # )
                 compose = transforms.Compose([
                     transforms.ToTensor(),
-                    normalize
+                    # normalize
                 ])
         else:
             if image.ndim == 2:
                 image = image[:, :, np.newaxis] # HW => HWC
-            image = image.transpose(2, 0, 1) # HWC => CHW
+            image = image.transpose(2, 0, 1) # HWC => HWC
             assert isinstance(image, np.ndarray)
             assert list(image.shape) == self.image_shape
             assert image.dtype == np.uint8
             if self._xflip[idx]:
                 assert image.ndim == 3 # CHW
                 image = image[:, :, ::-1]
-            image = image.transpose(1, 2, 0) # CHW => HWC
             if self._mode == "train":
                 compose = transforms.Compose([
                     # transforms.RandomRotation(degrees=15),
@@ -299,13 +301,15 @@ class ImageFolderDataset(Dataset):
                     transforms.ToTensor()
                 ])
             else:
-                compose = transforms.ToTensor()
+                compose = transforms.Compose([
+                    transforms.ToTensor(),
+                ])
         image = compose(image).cpu().detach().numpy()
         return image.copy(), self.get_norm_label(idx).copy()
 
     def _load_raw_image(self, raw_idx):
         fname = self._image_fnames[raw_idx]
-        if self.data_name in ["adni", "ukb"]:
+        if self.data_name in ["adni", "ukb", "nacc"]:
             path = os.path.join(self._path, fname)
             image = nib.load(path).get_fdata().astype(np.uint8)
             self.image_arr = image.copy()
@@ -321,7 +325,8 @@ class ImageFolderDataset(Dataset):
                     if self.image_arr.ndim == 2:
                         self.image_arr = self.image_arr[:, :, np.newaxis] # HW => HWC
                     self.image_arr = self.image_arr.transpose(2, 0, 1) # HWC => CHW
-        return image
+        # return image
+        return self.image_arr
 
     def _load_raw_labels(self):
         fname = 'dataset.json'
@@ -461,131 +466,6 @@ class UKBiobankMRIDataset2D(ImageFolderDataset):
             self.new_labels_norm = self.new_labels_norm[:, 2].reshape(-1, 1)
         return new_labels
 #----------------------------------------------------------------------------
-## images and labels (UKB with DAG graph (causal))
-class UKBiobankMRIDataset2D_single(ImageFolderDataset):
-    def __init__(
-        self, 
-        path, 
-        resolution=None,
-        mode: str = "test", ## ["train", "val", "test"]
-        data_name: str = "ukb",
-        **super_kwargs
-    ):
-        self.mode = mode
-        self.data_name = data_name
-        ## which source
-        self.which_source = [path.split("/")[-1], path.split("/")[-2]]
-        for source in self.which_source:
-            if len(source.split("_")) > 1:
-                s = source.split("_")[-2]
-                if s.startswith("source"):
-                    self.which_source = s
-                    break
-        self.log_volumes = get_settings_sourcebased(data_name, self.which_source)
-
-        super().__init__(data_name, self.mode, path, resolution, **super_kwargs)
-    
-    def _get_mu_std(self, labels=None, which_source=None):
-        model = dict()
-        if self.mode != "train":
-            assert self._path.endswith("valset/") or self._path.endswith("testset/")
-            if self.mode == "val":
-                self.train_path = os.path.join(self._path.split("valset")[0], "trainset/")
-            elif self.mode == "test":
-                self.train_path = os.path.join(self._path.split("testset")[0], "trainset/")
-            self._type = 'dir'
-            self.train_all_fnames = {os.path.relpath(os.path.join(root, fname), start=self.train_path) for root, _dirs, files in os.walk(self.train_path) for fname in files}
-            self.train_image_fnames = sorted(fname for fname in self.train_all_fnames if self._file_ext(fname) in ".gz")
-            fname = "dataset.json"
-            if fname not in self.train_all_fnames:
-                return None
-            with open(os.path.join(self.train_path, fname), 'rb') as f:
-                trainlabels = json.load(f)["labels"]
-            if trainlabels is None:
-                return None
-            trainlabels = dict(trainlabels)
-            trainlabels = [trainlabels[fname.replace("\\", "/")] for fname in self.train_image_fnames] ## a dict
-
-            new_labels = np.zeros(shape=(len(trainlabels), len(self.vars)), dtype=np.float32)
-            for num, l in enumerate(trainlabels):
-                i = list(l[self.vars[0]].items())[0][0]
-                temp = [l[var][str(i)] for var in self.vars]
-                new_labels[num, :] = temp
-            labels = new_labels
-
-        model.update(
-            age_mu = np.mean(labels[:, 0]),
-            age_std = np.std(labels[:, 0]),
-            age_min = np.min(labels[:, 0]),
-            age_max = np.max(labels[:, 0])
-        )
-        c_additional_mu = np.mean(np.log(labels[:, 1])) if self.log_volumes else np.mean(labels[:, 1])
-        c_additional_std = np.std(np.log(labels[:, 1])) if self.log_volumes else np.std(labels[:, 1])
-
-        if which_source == "source1":
-            model.update(
-                ventricle_mu = c_additional_mu,
-                ventricle_std = c_additional_std
-            )
-        elif which_source == "source2":
-            model.update(
-                grey_matter_mu = c_additional_mu,
-                grey_matter_std = c_additional_std
-            )
-        return model
-
-    def _normalise_labels(self, age, ventricle=None, grey_matter=None):
-        ## zero mean normalisation
-        age = (age - self.model["age_min"]) / (self.model["age_max"] - self.model["age_min"])
-        if self.which_source == "source1":
-            if self.log_volumes:
-                ventricle = np.log(ventricle)
-            ventricle = (ventricle - self.model["ventricle_mu"]) / self.model["ventricle_std"]
-            samples = np.concatenate([age, ventricle], 1)
-        elif self.which_source == "source2":
-            if self.log_volumes:
-                grey_matter = np.log(grey_matter)
-            grey_matter = (grey_matter - self.model["grey_matter_mu"]) / self.model["grey_matter_std"]
-            samples = np.concatenate([age, grey_matter], 1)
-        return samples
-
-    def _load_raw_labels(self):
-        fname = "dataset.json"
-        if fname not in self._all_fnames:
-            return None
-        with self._open_file(fname) as f:
-            labels = json.load(f)["labels"]
-        if labels is None:
-            return None
-        labels = dict(labels)
-        labels = [labels[fname.replace("\\", "/")] for fname in self._image_fnames] ## a dict 
-
-        if self.which_source == "source1":
-            self.vars = ["age", "ventricle"]
-        elif self.which_source == "source2":
-            self.vars = ["age", "grey_matter"]
-        else:
-            raise ValueError(f"No such source {self.which_source}")
-
-        new_labels = np.zeros(shape=(len(labels), len(self.vars)), dtype=np.float32)
-        for num, l in enumerate(labels):
-            i = list(l[self.vars[0]].items())[0][0]
-            temp = [l[var][str(i)] for var in self.vars]
-            new_labels[num, :] = temp
-        self.model = self._get_mu_std(new_labels, self.which_source)
-        if self.which_source == "source1":
-            self.new_labels_norm = self._normalise_labels(
-                age=new_labels[:, 0].reshape(-1, 1),
-                ventricle=new_labels[:, 1].reshape(-1, 1)
-            )
-        elif self.which_source == "source2":
-            self.new_labels_norm = self._normalise_labels(
-                age=new_labels[:, 0].reshape(-1, 1),
-                grey_matter=new_labels[:, 1].reshape(-1, 1)
-            )
-        return new_labels
-    
-#----------------------------------------------------------------------------
 class MorphoMNISTDataset_causal(ImageFolderDataset):
     def __init__(
         self,
@@ -699,131 +579,6 @@ class MorphoMNISTDataset_causal(ImageFolderDataset):
         return new_labels
 
 #----------------------------------------------------------------------------
-class MorphoMNISTDataset_causal_single(ImageFolderDataset):
-    def __init__(
-        self,
-        path, 
-        resolution=None,
-        mode: str = "train", ##[train, val, test]
-        data_name: str = "mnist-thickness-intensity", ## two datasets: "mnist-thickness-intensity", ""mnist-thickness-slant""
-        include_numbers: bool = False,                ## include numbers as classes for labels
-        **super_kwargs
-    ):
-        self.mode = mode
-        self.include_numbers = include_numbers
-        self.data_name = data_name
-        ## which source
-        self.which_source = [path.split("/")[-1], path.split("/")[-2]]
-        for source in self.which_source:
-            s = source.split("_")[-1]
-            if s.startswith("source"):
-                self.which_source = s
-                break
-        super().__init__(data_name, self.mode, path, resolution, **super_kwargs)
-
-    def _get_mu_std(self, labels=None, which_source=None):
-        model = dict()
-        if self.mode != "train":
-            assert self._path.endswith("valset/") or self._path.endswith("testset/")
-            if self.mode == "val":
-                self.train_path = os.path.join(self._path.split("valset")[0], "trainset/")
-            elif self.mode == "test":
-                self.train_path = os.path.join(self._path.split("testset")[0], "trainset/")
-            self._type = 'dir'
-            self.train_all_fnames = {os.path.relpath(os.path.join(root, fname), start=self.train_path) for root, _dirs, files in os.walk(self.train_path) for fname in files}
-            PIL.Image.init()
-            self.train_image_fnames = sorted(fname for fname in self.train_all_fnames if self._file_ext(fname) in PIL.Image.EXTENSION)
-            fname = "dataset.json"
-            if fname not in self.train_all_fnames:
-                return None
-            with open(os.path.join(self.train_path, fname), 'rb') as f:
-                trainlabels = json.load(f)["labels"]
-            if trainlabels is None:
-                return None
-            trainlabels = dict(trainlabels)
-            trainlabels = [trainlabels[fname.replace("\\", "/")] for fname in self.train_image_fnames] ## a dict
-
-            new_labels = np.zeros(shape=(len(trainlabels), 2), dtype=np.float32)
-            for num, l in enumerate(trainlabels):
-                temp = [l[var] for var in self.vars]
-                new_labels[num, :] = temp
-            labels = new_labels
-
-        model.update(
-            thickness_mu = np.mean(labels[:, 0]),
-            thickness_std = np.std(labels[:, 0])
-        )
-        c_additional_mu = np.mean(labels[:, 1])
-        c_additional_std = np.std(labels[:, 1])
-        if which_source == "source1":
-            model.update(
-                intensity_mu = c_additional_mu,
-                intensity_std = c_additional_std
-            )
-        elif which_source == "source2":
-            model.update(
-                slant_mu = c_additional_mu,
-                slant_std = c_additional_std
-            )
-        return model
-
-    def _normalise_labels(self, thickness, intensity=None, slant=None, classes=None):
-        ## gamma normalized dist
-        thickness = (thickness - self.model["thickness_mu"]) / self.model["thickness_std"]
-        if self.which_source == "source1":
-            intensity = (intensity - self.model["intensity_mu"]) / self.model["intensity_std"]
-            samples = np.concatenate([thickness, intensity], 1)
-        elif self.which_source == "source2":
-            slant = (slant - self.model["slant_mu"]) / self.model["slant_std"]
-            samples = np.concatenate([thickness, slant], 1)
-        if classes is not None:
-            if classes.shape[1] != 10:
-                classes = F.one_hot(torch.tensor(classes, dtype=torch.long), num_classes=10).cpu().detach().numpy()
-            samples = np.concatenate([samples, classes], 1)
-        return samples
-
-    def _load_raw_labels(self):
-        fname = "dataset.json"
-        if fname not in self._all_fnames:
-            return None
-        with self._open_file(fname) as f:
-            labels = json.load(f)["labels"]
-        if labels is None:
-            return None
-        labels = dict(labels)
-        labels = [labels[fname.replace("\\", "/")] for fname in self._image_fnames] ## a dict
-
-        if self.which_source == "source1":
-            self.vars = ["thickness", "intensity"]
-        elif self.which_source == "source2":
-            self.vars = ["thickness", "slant"]
-        else:
-            raise ValueError(f"No such source {self.which_source}")
-        new_labels = np.zeros(shape=(len(labels), 2+10), 
-            dtype=np.float32) if self.include_numbers else np.zeros(shape=(len(labels), 2), dtype=np.float32)
-        for num, l in enumerate(labels):
-            temp = [l[var] for var in self.vars]
-            if self.include_numbers:
-                c = F.one_hot(torch.tensor(l["label"], dtype=torch.long), num_classes=10)
-                ll = np.concatenate([np.array(temp), c.cpu().detach().numpy()], axis=-1)
-            new_labels[num, :] = ll if self.include_numbers else temp
-        self.model = self._get_mu_std(new_labels, self.which_source)
-        if self.which_source == "source1":
-            self.new_labels_norm = self._normalise_labels(
-                thickness=new_labels[:, 0].reshape(-1, 1),
-                intensity=new_labels[:, 1].reshape(-1, 1),
-                slant=None,
-                classes=new_labels[:, 2:] if self.include_numbers else None)
-        elif self.which_source == "source2":
-            self.new_labels_norm = self._normalise_labels(
-                thickness=new_labels[:, 0].reshape(-1, 1),
-                intensity=None,
-                slant=new_labels[:, 1].reshape(-1, 1),
-                classes=new_labels[:, 2:] if self.include_numbers else None)
-
-        return new_labels
-    
-#----------------------------------------------------------------------------
 class UKBiobankRetinalDataset2D(ImageFolderDataset):
     def __init__(
         self, 
@@ -835,7 +590,8 @@ class UKBiobankRetinalDataset2D(ImageFolderDataset):
         **super_kwargs
     ):
         assert mode in ["train", "val", "test"]
-        assert covariate in ["age", "systolic", "diastolic", "spherical", "cylindrical"]
+        assert covariate in ["age", "systolic", "diastolic", "spherical", 
+                             "cylindrical", "astigmatism_angle", "presbyopia", "cataract"]
         self.mode = mode
         self.data_name = data_name
         ## which source
@@ -871,7 +627,7 @@ class UKBiobankRetinalDataset2D(ImageFolderDataset):
             trainlabels = dict(trainlabels)
             trainlabels = [trainlabels[fname.replace("\\", "/")] for fname in self.train_image_fnames] ## a dict
 
-            new_labels = np.zeros(shape=(len(trainlabels), 5), dtype=np.float32)
+            new_labels = np.zeros(shape=(len(trainlabels), len(self.vars)), dtype=np.float32)
             for num, l in enumerate(trainlabels):
                 i = list(l[self.vars[0]].items())[0][0]
                 temp = [l[var][str(i)] for var in self.vars]
@@ -885,28 +641,34 @@ class UKBiobankRetinalDataset2D(ImageFolderDataset):
             age_max = np.max(labels[:, 0]),
             diastolic_bp_mu = np.mean(np.log(labels[:, 1])) if self.log_volumes_source1 else np.mean(labels[:, 1]),
             diastolic_bp_std = np.std(np.log(labels[:, 1])) if self.log_volumes_source1 else np.std(labels[:, 1]),
-            systolic_bp_mu = np.mean(np.log(labels[:, 2])) if self.log_volumes_source1 else np.mean(labels[:, 2]),
-            systolic_bp_std = np.std(np.log(labels[:, 2])) if self.log_volumes_source1 else np.std(labels[:, 2]),
+            # systolic_bp_mu = np.mean(np.log(labels[:, 2])) if self.log_volumes_source1 else np.mean(labels[:, 2]),
+            # systolic_bp_std = np.std(np.log(labels[:, 2])) if self.log_volumes_source1 else np.std(labels[:, 2]),
             spherical_power_left_mu = np.mean(np.log(labels[:, 3] + 1e2)) if self.log_volumes_source2 else np.mean(labels[:, 3]),
             spherical_power_left_std = np.std(np.log(labels[:, 3] + 1e2)) if self.log_volumes_source2 else np.std(labels[:, 3]),
             cylindrical_power_left_mu = np.mean(np.log(labels[:, 4])) if self.log_volumes_source2 else np.mean(labels[:, 4]),
-            cylindrical_power_left_std = np.std(np.log(labels[:, 4])) if self.log_volumes_source2 else np.std(labels[:, 4])
+            cylindrical_power_left_std = np.std(np.log(labels[:, 4])) if self.log_volumes_source2 else np.std(labels[:, 4]),
+            # astigmatism_angle_left_mu = np.mean(labels[:, 5]),
+            # astigmatism_angle_left_std = np.std(labels[:, 5])
         )
         return model
 
     def _normalise_labels(self, age, diastolic_bp=None, systolic_bp=None, spherical_power_left=None, cylindrical_power_left=None):
+                        #   astigmatism_angle_left=None):
         ## zero mean normalisation
         age = (age - self.model["age_min"]) / (self.model["age_max"] - self.model["age_min"])
         if self.log_volumes_source1:
             diastolic_bp = np.log(diastolic_bp)
-            systolic_bp = np.log(systolic_bp)
+            # systolic_bp = np.log(systolic_bp)
         bp = (diastolic_bp - self.model["diastolic_bp_mu"]) / self.model["diastolic_bp_std"]
-        systolic_bp = (systolic_bp - self.model["systolic_bp_mu"]) / self.model["systolic_bp_std"]
+        # systolic_encoder = OneHotEncoder().fit(systolic_bp)
+        # systolic_bp = systolic_encoder.transform(systolic_bp).toarray()
         if self.log_volumes_source2:
             spherical_power_left = np.log(spherical_power_left + 1e2)
             cylindrical_power_left = np.log(cylindrical_power_left)
         spherical_power_left = (spherical_power_left - self.model["spherical_power_left_mu"]) / self.model["spherical_power_left_std"]
         cylindrical_power_left = (cylindrical_power_left - self.model["cylindrical_power_left_mu"]) / self.model["cylindrical_power_left_std"]
+        # astigmatism_angle_left = astigmatism_angle_left / 90 - 1
+        # astigmatism_angle_left = (astigmatism_angle_left - self.model["astigmatism_angle_left_mu"]) / self.model["astigmatism_angle_left_std"]
         samples = np.concatenate([age, bp, systolic_bp, spherical_power_left, cylindrical_power_left], 1)
         return samples
 
@@ -920,13 +682,25 @@ class UKBiobankRetinalDataset2D(ImageFolderDataset):
             return None
         labels = dict(labels)
         labels = [labels[fname.replace("\\", "/")] for fname in self._image_fnames] ## a dict 
-        self.vars = ["age", "diastolic_bp", "systolic_bp", "spherical_power_left", "cylindrical_power_left"]
+        self.vars = ["age", "diastolic_bp", "systolic_bp", "spherical_power_left",
+                     "cylindrical_power_left",
+                      "astigmatism_angle_left", "presbyopia", "cataract"]
 
-        new_labels = np.zeros(shape=(len(labels), 5), dtype=np.float32)
+        new_labels = np.zeros(shape=(len(labels), len(self.vars)), dtype=np.float32)
         for num, l in enumerate(labels):
             i = list(l[self.vars[0]].items())[0][0]
             temp = [l[var][str(i)] for var in self.vars]
             new_labels[num, :] = temp
+        ## systolic_bp
+        # normal_bp = (new_labels[:, 2] < 140)
+        # # prehyper = np.where((140 > new_labels[:, 2]) & (new_labels[:, 2] >= 120))[0]
+        # stage1 = np.where((160 > new_labels[:, 2]) & (new_labels[:, 2] >= 140))[0]
+        # stage2 = (new_labels[:, 2] >= 160)
+        # new_labels[normal_bp.reshape(-1), 2] = 0
+        # # new_labels[prehyper.reshape(-1), 2] = 1
+        # new_labels[stage1.reshape(-1), 2] = 1
+        # new_labels[stage2.reshape(-1), 2] = 2
+
         self.model = self._get_mu_std(new_labels)
         self.new_labels_norm = self._normalise_labels(
             age=new_labels[:, 0].reshape(-1, 1),
@@ -934,49 +708,57 @@ class UKBiobankRetinalDataset2D(ImageFolderDataset):
             systolic_bp = new_labels[:, 2].reshape(-1, 1),
             spherical_power_left=new_labels[:, 3].reshape(-1, 1),
             cylindrical_power_left=new_labels[:, 4].reshape(-1, 1)
+            # astigmatism_angle_left=new_labels[:, 5].reshape(-1, 1)
         )
-
         if self.covariate == "age":
             new_labels = new_labels[:, 0].reshape(-1, 1)
             self.new_labels_norm = self.new_labels_norm[:, 0].reshape(-1, 1)
         elif self.covariate == "diastolic":
-            new_labels = new_labels[:, 1].reshape(-1, 1)
-            self.new_labels_norm = self.new_labels_norm[:, 1].reshape(-1, 1)
+            new_labels = new_labels[:, 1].reshape(-1, 1).astype(np.float32)
+            self.new_labels_norm = self.new_labels_norm[:, 1].reshape(-1, 1).astype(np.float32)
         elif self.covariate == "systolic":
-            new_labels = new_labels[:, 2].reshape(-1, 1)
-            self.new_labels_norm = self.new_labels_norm[:, 2].reshape(-1, 1)
+            new_labels = new_labels[:, 2]
+            self.new_labels_norm = self.new_labels_norm[:, 2].reshape(-1, 1).astype(np.float32)
+            # self.new_labels_norm = self.new_labels_norm[:, 2:6]
         elif self.covariate == "spherical":
             new_labels = new_labels[:, 3].reshape(-1, 1)
-            self.new_labels_norm =  self.new_labels_norm[:, 3].reshape(-1, 1)
+            self.new_labels_norm = self.new_labels_norm[:, 3].reshape(-1, 1).astype(np.float32)
         elif self.covariate == "cylindrical":
             new_labels = new_labels[:, 4].reshape(-1, 1)
             self.new_labels_norm = self.new_labels_norm[:, 4].reshape(-1, 1)
+        elif self.covariate == "astigmatism_angle":
+            new_labels = new_labels[:, 5].reshape(-1, 1)
+            self.new_labels_norm = self.new_labels_norm[:, 5].reshape(-1, 1).astype(np.float32)
+        elif self.covariate == "presbyopia":
+            new_labels = new_labels[:, 6]
+            self.new_labels_norm = new_labels.astype(np.int64)
+        elif self.covariate == "cataract":
+            new_labels = new_labels[:, 7]
+            self.new_labels_norm = new_labels.astype(np.int64)
         return new_labels
 #----------------------------------------------------------------------------
-class UKBiobankRetinalDataset2D_single(ImageFolderDataset):
+### Extra datasets
+## ADNI
+class AdniMRIDataset2D(ImageFolderDataset):
     def __init__(
         self, 
         path, 
-        resolution=None,
+        resolution = None,
         mode: str = "train", ## ["train", "val", "test"]
-        data_name: str = "ukb",
+        data_name: str = "adni",
+        covariate: str = "age", ## ["age", "left_hippocampus", "right_hippocampus"]
         **super_kwargs
     ):
+        assert mode in ["train", "val", "test"]
+        assert covariate in ["age", "left_hippocampus", "right_hippocampus"]
         self.mode = mode
+        self.path = path
+        self.excluded_files = None
         self.data_name = data_name
-        ## which source
-        self.which_source = [path.split("/")[-1], path.split("/")[-2]]
-        for source in self.which_source:
-            if len(source.split("_")) > 1:
-                s = source.split("_")[-2]
-                if s.startswith("source"):
-                    self.which_source = s
-                    break
-        self.log_volumes = get_settings_sourcebased(data_name, self.which_source)
-
+        self.covariate = covariate
         super().__init__(data_name, self.mode, path, resolution, **super_kwargs)
     
-    def _get_mu_std(self, labels=None, which_source=None):
+    def _get_mu_std(self, labels=None):
         model = dict()
         if self.mode != "train":
             assert self._path.endswith("valset/") or self._path.endswith("testset/")
@@ -986,7 +768,7 @@ class UKBiobankRetinalDataset2D_single(ImageFolderDataset):
                 self.train_path = os.path.join(self._path.split("testset")[0], "trainset/")
             self._type = 'dir'
             self.train_all_fnames = {os.path.relpath(os.path.join(root, fname), start=self.train_path) for root, _dirs, files in os.walk(self.train_path) for fname in files}
-            self.train_image_fnames = sorted(fname for fname in self.train_all_fnames if self._file_ext(fname) in PIL.Image.EXTENSION)
+            self.train_image_fnames = sorted(fname for fname in self.train_all_fnames if self._file_ext(fname) in ".gz")
             fname = "dataset.json"
             if fname not in self.train_all_fnames:
                 return None
@@ -997,52 +779,246 @@ class UKBiobankRetinalDataset2D_single(ImageFolderDataset):
             trainlabels = dict(trainlabels)
             trainlabels = [trainlabels[fname.replace("\\", "/")] for fname in self.train_image_fnames] ## a dict
 
-            new_labels = np.zeros(shape=(len(trainlabels), 2), dtype=np.float32)
+            new_labels = np.zeros(shape=(len(trainlabels), len(self.vars)), dtype=np.float32)
             for num, l in enumerate(trainlabels):
                 i = list(l[self.vars[0]].items())[0][0]
                 temp = [l[var][str(i)] for var in self.vars]
+                # ## cdr 
+                # temp[1] = 1 if temp[1] >= 1.0 else temp[1]
                 new_labels[num, :] = temp
             labels = new_labels
-
         model.update(
             age_mu = np.mean(labels[:, 0]),
             age_std = np.std(labels[:, 0]),
             age_min = np.min(labels[:, 0]),
             age_max = np.max(labels[:, 0]),
+            # cdr_unique = np.unique(labels[:, 1]),
+            left_hippo_mu = np.mean(labels[:, 1]),
+            left_hippo_std = np.std(labels[:, 1]),
+            right_hippo_mu = np.mean(labels[:, 2]),
+            right_hippo_std = np.std(labels[:, 2])
         )
-        if which_source == "source2":
-            c_additional_mu = np.mean(np.log(labels[:, 1] + 1e2)) if self.log_volumes else np.mean(labels[:, 1])
-            c_additional_std = np.std(np.log(labels[:, 1] + 1e2)) if self.log_volumes else np.std(labels[:, 1])
-        else:
-            c_additional_mu = np.mean(np.log(labels[:, 1])) if self.log_volumes else np.mean(labels[:, 1])
-            c_additional_std = np.std(np.log(labels[:, 1])) if self.log_volumes else np.std(labels[:, 1])
-        if which_source == "source1":
-            model.update(
-                diastolic_bp_mu = c_additional_mu,
-                diastolic_bp_std = c_additional_std,
-            )
-        elif which_source == "source2":
-            model.update(
-                spherical_power_left_mu = c_additional_mu,
-                spherical_power_left_std = c_additional_std,
-            )
         return model
 
-    def _normalise_labels(self, age, diastolic_bp=None, spherical_power_left=None):
+    def _normalise_labels(self, age, left_hippocampus, right_hippocampus):
+        #cdr=None):
         ## zero mean normalisation
         age = (age - self.model["age_min"]) / (self.model["age_max"] - self.model["age_min"])
-        if self.which_source == "source1":
-            if self.log_volumes:
-                diastolic_bp = np.log(diastolic_bp)
-            bp = (diastolic_bp - self.model["diastolic_bp_mu"]) / self.model["diastolic_bp_std"]
-            samples = np.concatenate([age, bp], 1)
-        elif self.which_source == "source2":
-            if self.log_volumes:
-                spherical_power_left = np.log(spherical_power_left + 1e2)
-            spherical_power_left = (spherical_power_left - self.model["spherical_power_left_mu"]) / self.model["spherical_power_left_std"]
-            samples = np.concatenate([age, spherical_power_left], 1)
+        left_hippocampus = (left_hippocampus - self.model["left_hippo_mu"]) / self.model["left_hippo_std"]
+        right_hippocampus = (right_hippocampus - self.model["right_hippo_mu"]) / self.model["right_hippo_std"]
+        # cdr_encoder = OneHotEncoder().fit(cdr)
+        # cdr = cdr_encoder.transform(cdr).toarray()
+        # cdr = cdr.astype(np.float32)
+        samples = np.concatenate([age, left_hippocampus, right_hippocampus], 1)
         return samples
+    
+    def _load_raw_labels(self):
+        fname = "dataset.json"
+        if fname not in self._all_fnames:
+            return None
+        with self._open_file(fname) as f:
+            labels = json.load(f)["labels"]
+        if labels is None:
+            return None
+        labels = dict(labels)
+        labels = [labels[fname.replace("\\", "/")] for fname in self._image_fnames] ## a dict 
 
+        # self.vars = ["Age", "CDGLOBAL", "left_hippocampus", "right_hippocampus"]
+        self.vars = ["Age", "left_hippocampus", "right_hippocampus"]
+        new_labels = np.zeros(shape=(len(labels), len(self.vars)), dtype=np.float32)
+        for num, l in enumerate(labels):
+            i = list(l[self.vars[0]].items())[0][0]
+            temp = [l[VAR][str(i)] for VAR in self.vars]
+            # ## cdr
+            # temp[1] = 1 if temp[1] >= 1.0 else temp[1]
+            new_labels[num, :] = temp
+        self.model = self._get_mu_std(new_labels)
+        self.new_labels_norm = self._normalise_labels(
+            age=new_labels[:, 0].reshape(-1, 1),
+            # cdr=new_labels[:, 1].reshape(-1, 1)
+            left_hippocampus=new_labels[:, 1].reshape(-1, 1),
+            right_hippocampus=new_labels[:, 2].reshape(-1, 1)
+        )
+        if self.covariate == "age":
+            new_labels = new_labels[:, 0].reshape(-1, 1)
+            self.new_labels_norm = self.new_labels_norm[:, 0].reshape(-1, 1)
+        elif self.covariate == "left_hippocampus":
+            new_labels = new_labels[:, 1].reshape(-1, 1)
+            self.new_labels_norm = self.new_labels_norm[:, 1].reshape(-1, 1)
+        elif self.covariate == "right_hippocampus":
+            new_labels = new_labels[:, 2].reshape(-1, 1)
+            self.new_labels_norm = self.new_labels_norm[:, 2].reshape(-1, 1)
+        return new_labels
+## --------------------------------------------------------------------------
+### NACC
+class NACCMRIDataset2D(ImageFolderDataset):
+    def __init__(
+        self, 
+        path, 
+        resolution=None,
+        mode: str = "train", ## ["train", "val", "test"]
+        data_name: str = "nacc",
+        covariate: str = "age", ## ["age", "apoe"]
+        **super_kwargs
+    ):
+        assert mode in ["train", "val", "test"]
+        assert covariate in ["age", "apoe"]
+        self.mode = mode
+        self.path = path
+        self.data_name = data_name
+        self.covariate = covariate
+        super().__init__(data_name, self.mode, path, resolution, **super_kwargs)
+
+    def _get_mu_std(self, labels=None):
+        model = dict()
+        if self.mode != "train" or labels is None:
+            assert self._path.endswith("valset/") or self._path.endswith("testset/")
+            if self.mode == "val":
+                self.train_path = os.path.join(self._path.split("valset")[0], "trainset/")
+            elif self.mode == "test":
+                self.train_path = os.path.join(self._path.split("testset")[0], "trainset/")
+            self._type = 'dir'
+            self.train_all_fnames = {os.path.relpath(os.path.join(root, fname), start=self.train_path) for root, _dirs, files in os.walk(self.train_path) for fname in files}
+            self.train_image_fnames = sorted(fname for fname in self.train_all_fnames if self._file_ext(fname) in ".gz")
+            fname = "dataset.json"
+            if fname not in self.train_all_fnames:
+                return None
+            with open(os.path.join(self.train_path, fname), 'rb') as f:
+                trainlabels = json.load(f)["labels"]
+            if trainlabels is None:
+                return None
+            trainlabels = dict(trainlabels)
+            trainlabels = [trainlabels[fname.replace("\\", "/")] for fname in self.train_image_fnames] ## a dict
+
+            new_labels = np.zeros(shape=(len(trainlabels), len(self.vars)), dtype=np.float32)
+            for num, l in enumerate(trainlabels):
+                i = list(l[self.vars[0]].items())[0][0]
+                temp = [l[var][str(i)] for var in self.vars]
+                ## cdr 
+                # temp[-1] = 1 if temp[-1] >= 1.0 else temp[-1]
+                new_labels[num, :] = temp
+            # self.excluded_files = np.where(new_labels[:, 1] == 9.0)[0]
+            labels = new_labels[new_labels[:, 1] != 9.0]
+        model.update(
+            age_mu = np.mean(labels[:, 0]),
+            age_std = np.std(labels[:, 0]),
+            age_min = np.min(labels[:, 0]),
+            age_max = np.max(labels[:, 0]),
+            apoe_unique = np.unique(labels[:, 1]),
+            # cdr_unique = np.unique(labels[:, -1]),
+        )
+        return model
+
+    def _normalise_labels(self, age, apoe):
+        # , cdr=None):
+        ## zero mean normalisation
+        age = (age - self.model["age_min"]) / (self.model["age_max"] - self.model["age_min"])
+        apoe_encoder = OneHotEncoder().fit(apoe)
+        apoe = apoe_encoder.transform(apoe).toarray()
+        apoe = apoe.astype(np.float32)
+        # cdr_encoder = OneHotEncoder().fit(cdr)
+        # cdr = cdr_encoder.transform(cdr).toarray()
+        # cdr = cdr.astype(np.float32)
+        # samples = np.concatenate([age, apoe, cdr], 1)
+        samples = np.concatenate([age, apoe], 1)
+        return samples
+    
+    def _load_raw_labels(self):
+        fname = "dataset.json"
+        if fname not in self._all_fnames:
+            return None
+        with self._open_file(fname) as f:
+            labels = json.load(f)["labels"]
+        if labels is None:
+            return None
+        labels = dict(labels)
+        labels = [labels[fname.replace("\\", "/")] for fname in self._image_fnames] ## a dict 
+
+        self.vars = ["Age", "Apoe4"]
+        # self.vars = ["Age", "Apoe4", "CDGLOBAL"]
+        new_labels = np.zeros(shape=(len(labels), len(self.vars)), dtype=np.float32)
+        for num, l in enumerate(labels):
+            i = list(l[self.vars[0]].items())[0][0]
+            temp = [l[VAR][str(i)] for VAR in self.vars]
+            ## cdr 
+            # temp[-1] = 1 if temp[-1] >= 1.0 else temp[-1]
+            new_labels[num, :] = temp
+        idx_apoe4_9 = np.where(new_labels[:, 1] != 9.0)[0]
+        new_labels = new_labels[new_labels[:, 1] != 9.0] ## remove missing APoe4
+        self._image_fnames = [self._image_fnames[i] for i in idx_apoe4_9]
+        self._raw_shape[0] = len(self._image_fnames) ## [Size, C, W, H]
+        self._raw_idx = np.arange(self._raw_shape[0], dtype=np.int64)
+        self.model = self._get_mu_std(new_labels)
+        self.new_labels_norm = self._normalise_labels(
+            age=new_labels[:, 0].reshape(-1, 1),
+            apoe=new_labels[:, 1].reshape(-1, 1),
+            # cdr=new_labels[:, -1].reshape(-1, 1)
+        )
+        if self.covariate == "age":
+            new_labels = new_labels[:, 0].reshape(-1, 1)
+            self.new_labels_norm = self.new_labels_norm[:, 0].reshape(-1, 1)
+        elif self.covariate == "apoe":
+            new_labels = new_labels[:, 1]
+            self.new_labels_norm = new_labels.astype(np.int64)
+        return new_labels
+    
+## --------------------------------------------------------------------------
+## Extra Datasets with retinal images
+## --------------------------------------------------------------------------
+## images and labels
+class KaggleEyepacsDataset(ImageFolderDataset):
+    def __init__(
+        self, 
+        path, 
+        resolution=None,
+        mode: str = "train", ## ["train", "val", "test"]
+        data_name: str = "eyepacs",
+        **super_kwargs
+    ):
+        assert mode in ["train", "val", "test"]
+        self.mode = mode
+        self.data_name = data_name
+        super().__init__(data_name, self.mode, path, resolution, **super_kwargs)
+    
+    def _load_raw_labels(self):
+        fname = "dataset.json"
+        if fname not in self._all_fnames:
+            return None
+        with self._open_file(fname) as f:
+            labels = json.load(f)["labels"]
+        if labels is None:
+            return None
+        labels = dict(labels)
+        labels = [labels[fname.replace("\\", "/")] for fname in self._image_fnames] ## a dict 
+        self.vars = ["level"]
+
+        new_labels = np.zeros(shape=(len(labels), len(self.vars)), dtype=np.float32)
+        for num, l in enumerate(labels):
+            i = list(l[self.vars[0]].items())[0][0]
+            temp = l[self.vars[0]][str(i)]
+            new_labels[num] = temp
+        ## make it binary classification
+        new_labels[new_labels > 0] = 1
+        self.new_labels_norm = new_labels[:, 0].astype(np.int64)
+        return new_labels.reshape(-1)
+## --------------------------------------------------------------------------
+## for RFMiD, we pick the three most common diseases
+## This dataset is a multi-label problem
+class RFMiDDataset(ImageFolderDataset):
+    def __init__(
+        self,
+        path,
+        resolution=None,
+        mode: str = "train", ## ["train", "val", "test"]
+        data_name: str = "rfmid",
+        covariate: str = "MH", ## ["Disease_Risk", "MH", "TSLN"]
+        **super_kwargs
+    ):
+        self.mode = mode
+        self.data_name = data_name
+        self.covariate = covariate
+        super().__init__(data_name, self.mode, path, resolution, **super_kwargs)
+    
     def _load_raw_labels(self):
         fname = "dataset.json"
         if fname not in self._all_fnames:
@@ -1053,49 +1029,39 @@ class UKBiobankRetinalDataset2D_single(ImageFolderDataset):
             return None
         labels = dict(labels)
         labels = [labels[fname.replace("\\", "/")] for fname in self._image_fnames] ## a dict
-        
-        if self.which_source == "source1":
-            self.vars = ["age", "diastolic_bp"]
-        elif self.which_source == "source2":
-            self.vars = ["age", "spherical_power_left"]
-        else:
-            raise ValueError(f"No such source {self.which_source}")
+        # self.vars = [
+            #"Disease_Risk",
+        #     "DR","ARMD","MH","DN","MYA",
+        #     "BRVO","TSLN","ERM","LS","MS","CSR","ODC","CRVO",
+        #     "TV","AH","ODP","ODE","ST","AION","PT","RT","RS","CRS",
+        #     "EDN","RPEC","MHL","RP","CWS","CB","ODPM","PRH","MNF","HR",
+        #     "CRAO","TD","CME","PTCR","CF","VH","MCA","VS","BRAO","PLQ","HPED","CL"
+        # ]
+        # self.vars = ["Disease_Risk", "DR", "ARMD", "MH", "MYA", "BRVO", "TSLN", "ODC", "ODP"]
+        self.vars = ["Disease_Risk", "MH", "TSLN"]
 
-        new_labels = np.zeros(shape=(len(labels), 2), dtype=np.float32)
+        new_labels = np.zeros(shape=(len(labels), len(self.vars)), dtype=np.float32)
         for num, l in enumerate(labels):
             i = list(l[self.vars[0]].items())[0][0]
-            temp = [l[var][str(i)] for var in self.vars]
-            new_labels[num, :] = temp
-        self.model = self._get_mu_std(new_labels, self.which_source)
-        if self.which_source == "source1":
-            self.new_labels_norm = self._normalise_labels(
-                age=new_labels[:, 0].reshape(-1, 1),
-                diastolic_bp=new_labels[:, 1].reshape(-1, 1)
-            )
-        elif self.which_source == "source2":
-            self.new_labels_norm = self._normalise_labels(
-                age=new_labels[:, 0].reshape(-1, 1),
-                spherical_power_left=new_labels[:, 1].reshape(-1, 1)
-            )
+            temp = [l[VAR][str(i)] for VAR in self.vars]
+            new_labels[num] = temp
+        if self.covariate == "Disease_Risk":
+            self.new_labels_norm = new_labels[:, 0].astype(np.int64)
+            new_labels = new_labels[:, 0]
+        elif self.covariate == "MH":
+            self.new_labels_norm = new_labels[:, 1].astype(np.int64)
+            new_labels = new_labels[:, 1]
+        elif self.covariate == "TSLN":
+            self.new_labels_norm = new_labels[:, 2].astype(np.int64)
+            new_labels = new_labels[:, 2]
         return new_labels
-    
-## get settings
-def get_settings_sourcebased(dataset: str, which_source: str = None):
-    if dataset == "ukb":
-        log_volumes = True
-    elif dataset == "adni":
-        log_volumes = False
-    elif dataset == "retinal":
-        if which_source == "source1":
-            log_volumes = True
-        elif which_source == "source2":
-            log_volumes = True
-    return log_volumes
-
+## --------------------------------------------------------------------------
+## Extra functions
+## --------------------------------------------------------------------------
 ## get settings
 def get_settings(dataset: str):
     if dataset == "ukb":
-        log_volumes_source1, log_volumes_source2 = True, True
+        log_volumes_source1, log_volumes_source2 = False, False
     elif dataset == "adni":
         log_volumes_source1, log_volumes_source2 = False, False
     elif dataset == "retinal":
