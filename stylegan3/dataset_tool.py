@@ -673,7 +673,8 @@ def open_dataset(source, *, dataset_name: str = None,
                     "myopia",
                     "hyperopia",
                     "presbyopia",
-                    "astigmatism"
+                    "astigmatism",
+                    "cataract"
                 ]
             )
         ## adni

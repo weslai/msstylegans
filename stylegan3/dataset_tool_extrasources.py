@@ -209,6 +209,15 @@ def open_kaggle_eyepacs(
     else:
         temp_path = "/dhc/dsets/diabetic_retinopathy"
         df_side["path"] =  temp_path + "/test/" + df_side["image"] + ".jpeg"
+    
+    disease_ratio = 0.45
+    disease_df = df_side[df_side["level"] != 0]
+    normal_df = df_side[df_side["level"] == 0]
+    normal_df_indexs = list(normal_df.index)
+    num_data = int(len(disease_df) / disease_ratio)
+    random_normal_indexs = np.random.choice(normal_df_indexs, size=num_data - len(disease_df), replace=False)
+    normal_df = normal_df.loc[random_normal_indexs]
+    df_side = pd.concat([disease_df, normal_df], ignore_index=True)
     ## separate train/val/test sets
     if which_dataset in ["train", "val"]:
         trainset, valset = train_test_split(df_side, test_size=0.3, random_state=42, shuffle=True)
@@ -227,33 +236,42 @@ def open_kaggle_eyepacs(
     def iterate_images():
         for idx, fname in enumerate(input_imgs):
             ## load image
-            img_idxs = []
             img_temp = np.array(PIL.Image.open(fname))
             ## here crop the length of images and fill the black part of the width
-            width = img_temp.shape[0] // 2
             img_mean = np.mean(img_temp, axis=-1)
-            for i in range(img_mean.shape[1] - 1):
-                rest = abs(img_mean[width, i+1] - img_mean[width, i])
-                if rest > 6:
-                    img_idxs.append(i)
-            if len(img_idxs) == 0:
-                img_new = img_temp[:, 180:-180, :]
-            else:
-                if img_temp.shape[1] - img_idxs[-1] > img_temp.shape[1] // 2 - img_idxs[-1]:
-                    img_new = img_temp[:, 180:-180, :]
+            column = 0
+            while column < img_temp.shape[1]:
+                column_mean = np.mean(img_mean[:, column])
+                if column_mean < 1:
+                    column += 1
                 else:
-                    img_new = img_temp[:, img_idxs[0]:img_idxs[-1], :]
-            long_side = max(img_new.shape[0], img_new.shape[1])
+                    break
+            column_rev = 1
+            while column_rev < img_temp.shape[1]:
+                column_mean = np.mean(img_mean[:, -column_rev])
+                if column_mean < 1:
+                    column_rev += 1
+                else:
+                    break
+            if column > column_rev:
+                img_temp = img_temp[:, column_rev:-column_rev, :]
+            elif column < column_rev:
+                if column == 0:
+                    img_temp = img_temp[:, column:, :]
+                else:
+                    img_temp = img_temp[:, column:-column, :]
+            long_side = max(img_temp.shape[0], img_temp.shape[1])
             img = np.zeros((long_side, long_side, 3))
-            if img_new.shape[0] > img_new.shape[1]:
-                start = (img_new.shape[0] - img_new.shape[1]) // 2
-                img[:, start:(start+img_new.shape[1]), :] = img_new
+
+            if img_temp.shape[0] > img_temp.shape[1]:
+                start = (img_temp.shape[0] - img_temp.shape[1]) // 2
+                img[:, start:(start+img_temp.shape[1]), :] = img_temp
             else:
-                start = (img_new.shape[1] - img_new.shape[0]) // 2
-                img[start:(start+img_new.shape[0]), :, :] = img_new
+                start = (img_temp.shape[1] - img_temp.shape[0]) // 2
+                img[start:(start+img_temp.shape[0]), :, :] = img_temp
             ## to uint 8
             img = img.astype(np.uint8)
-
+            
             items = dict(
                 (key, value)
                     for key, value in dataset.loc[dataset["path"] == fname][covs[1:]].to_dict().items()
@@ -306,11 +324,17 @@ def open_nacc(
                 newimg = (newimg - newimg.min()) / (newimg.max() - newimg.min())
                 newimg = (255 * newimg).astype(np.uint8)
                 # img = (255 * img).round().astype(np.uint8)
-            items = dict(
-                (key, value)
-                    for key, value in dataset.loc[dataset["MNIlin_filepath"] == fname][covs[1:]].to_dict().items()
-            )
-            yield dict(img=newimg, label=items, org_img=img)
+            newimg_mean = np.mean(newimg)
+            if newimg_mean < 38 or newimg_mean > 101:
+                continue
+            elif np.mean(newimg[:, :10]) > 0.6 or np.mean(newimg[:, -10:]) > 0.6:
+                continue
+            else:
+                items = dict(
+                    (key, value)
+                        for key, value in dataset.loc[dataset["MNIlin_filepath"] == fname][covs[1:]].to_dict().items()
+                )
+                yield dict(img=newimg, label=items, org_img=img)
             if idx >= max_idx - 1:
                 break
     return max_idx, iterate_images()
@@ -459,7 +483,8 @@ def open_dataset(source, *,
                 annotation_path=annotation_path,
                 max_images=max_images,
                 which_dataset=which_dataset,
-                covs=["ID", "Disease_Risk", "DR", "ARMD", "MH", "MYA", "BRVO", "TSLN", "ODC", "ODP"]
+                # covs=["ID", "Disease_Risk", "DR", "ARMD", "MH", "MYA", "BRVO", "TSLN", "ODC", "ODP"]
+                covs=["ID", "Disease_Risk", "MH", "TSLN"]
             )
         ## retinal (kaggle eyepacs dataset)
         elif source.rstrip('/').endswith("diabetic_retinopathy"):
