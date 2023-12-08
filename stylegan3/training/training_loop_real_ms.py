@@ -219,7 +219,7 @@ def training_loop(
     # Construct networks.
     if rank == 0:
         print('Constructing networks...')
-    if training_set.data_name == "retinal" or training_set.data_name == "eyepacs":
+    if training_set.data_name == "retinal" or training_set.data_name == "rfmid":
         g_label_dim = training_set.label_dim + training_set1.label_dim + 1 ## 2 sources (binary)
     elif training_set.data_name == "ukb" or training_set.data_name == "adni":
         g_label_dim = training_set.label_dim + training_set1.label_dim ## 2 sources (binary) (age is shared)

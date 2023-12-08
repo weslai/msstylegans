@@ -76,15 +76,18 @@ class StyleGAN2Loss(Loss):
                 # gen_logits = self.run_D(gen_img, gen_c, blur_sigma=blur_sigma)
                 gen_outputs_d = self.run_D(gen_img, gen_c, blur_sigma=blur_sigma)
                 if gen_outputs_d.shape[1] > 5: ## morpho-case with digits class
+                    print("it is morpho case")
                     gen_img_pred = gen_outputs_d[:, 0]
                     gen_cmap_pred = gen_outputs_d[:, 1:3]
                     gen_digit_pred = gen_outputs_d[:, 3:]
                 elif gen_outputs_d.shape[1] == 5: ## NACC case
+                    print("it is NACC case")
                     gen_img_pred = gen_outputs_d[:, 0]
                     gen_cmap_pred = gen_outputs_d[:, 1] ## age
                     gen_apoe_pred = gen_outputs_d[:, 2:] ## apoe
                     gen_digit_pred = None
-                elif gen_outputs_d.shape[1] == 4: ## rfmid case
+                elif (gen_outputs_d.shape[1] == 4) and (real_img.shape[1] == 3): ## rfmid case
+                    print("it is rfmid case")
                     gen_img_pred = gen_outputs_d[:, 0]
                     gen_dr_pred = gen_outputs_d[:, 1] ## disease_risk
                     gen_mh_pred = gen_outputs_d[:, 2] ## mh
@@ -92,13 +95,16 @@ class StyleGAN2Loss(Loss):
                     gen_cmap_pred = None
                     gen_digit_pred = None
                 elif gen_outputs_d.shape[1] == 2: ## eyepacs case
+                    print("it is eyepacs case")
                     gen_img_pred = gen_outputs_d[:, 0]
                     gen_cls_pred = gen_outputs_d[:, 1]
                 elif len(torch.unique(real_c[:, 1])) == 2: ## retinal, source 1 (cataract)
+                    print("it is ukb cataract case")
                     gen_img_pred = gen_outputs_d[:, 0]
                     gen_cmap_pred = gen_outputs_d[:, 1]
                     gen_digit_pred = gen_outputs_d[:, 2]
-                elif gen_outputs_d.shape[1] > 1:
+                elif gen_outputs_d.shape[1] > 1: ## retinal source2, mri ukb source 1 and 2
+                    print("it is semi-ms ukb source 1 or 2 case, or adni case")
                     gen_img_pred = gen_outputs_d[:, 0]
                     gen_cmap_pred = gen_outputs_d[:, 1:]
                     gen_digit_pred = None
@@ -128,7 +134,7 @@ class StyleGAN2Loss(Loss):
                     training_stats.report('Loss/scores/fake_labels', mse_loss)
                     training_stats.report('Loss/scores/fake_digits(ce loss)', ce_loss)
                     loss_Gmain = bce_loss + (mse_loss + ce_loss) * lambda_
-                elif gen_outputs_d.shape[1] == 4: ## rfmid case
+                elif (gen_outputs_d.shape[1] == 4) and (real_img.shape[1] == 3): ## rfmid case
                     dr_bce_loss = torch.nn.functional.binary_cross_entropy(
                         torch.sigmoid(gen_dr_pred), gen_c[:, 0])
                     mh_bce_loss = torch.nn.functional.binary_cross_entropy(
@@ -195,7 +201,7 @@ class StyleGAN2Loss(Loss):
                     gen_cmap_pred = gen_outputs_d[:, 1] ## age
                     gen_apoe_pred = gen_outputs_d[:, 2:] ## apoe
                     gen_digit_pred = None
-                elif gen_outputs_d.shape[1] == 4: ## rfmid case
+                elif (gen_outputs_d.shape[1] == 4) and (real_img.shape[1] == 3): ## rfmid case
                     gen_img_pred = gen_outputs_d[:, 0]
                     gen_dr_pred = gen_outputs_d[:, 1] ## disease_risk
                     gen_mh_pred = gen_outputs_d[:, 2] ## mh
@@ -225,19 +231,6 @@ class StyleGAN2Loss(Loss):
                 # loss_Dgen = torch.nn.functional.softplus(gen_logits) # -log(1 - sigmoid(gen_logits))
                 bce_loss = torch.nn.functional.binary_cross_entropy(
                     torch.sigmoid(gen_img_pred), torch.zeros_like(gen_img_pred, requires_grad=True).to(self.device))
-                # if gen_outputs_d.shape[1] > 3:
-                #     mse_loss = torch.nn.functional.mse_loss(gen_cmap_pred, gen_c[:, :2])
-                #     gen_digits = torch.where(gen_c[:, 2:] == 1)[1]
-                #     ce_loss = torch.nn.functional.cross_entropy(gen_digit_pred, gen_digits.long())
-                #     training_stats.report('Loss/scores/fake_labels', mse_loss)
-                #     training_stats.report('Loss/scores/fake_digits(ce loss)', ce_loss)
-                #     loss_Dgen = bce_loss + (mse_loss + ce_loss) * lambda_
-                # elif gen_outputs_d.shape[1] > 1:
-                #     mse_loss = torch.nn.functional.mse_loss(gen_cmap_pred, gen_c)
-                #     training_stats.report('Loss/scores/fake_labels', mse_loss)
-                #     loss_Dgen = bce_loss + mse_loss * lambda_
-                # else:
-                #     loss_Dgen = bce_loss
                 loss_Dgen = bce_loss
             with torch.autograd.profiler.record_function('Dgen_backward'):
                 loss_Dgen.mean().mul(gain).backward()
@@ -259,7 +252,7 @@ class StyleGAN2Loss(Loss):
                     real_cmap_pred = real_outputs_d[:, 1]
                     real_apoe_pred = real_outputs_d[:, 2:]
                     real_digit_pred = None
-                elif real_outputs_d.shape[1] == 4: ## rfmid case
+                elif (real_outputs_d.shape[1] == 4) and (real_img.shape[1] == 3): ## rfmid case
                     real_img_pred = real_outputs_d[:, 0]
                     real_dr_pred = real_outputs_d[:, 1] ## disease_risk
                     real_mh_pred = real_outputs_d[:, 2] ## mh
@@ -301,7 +294,7 @@ class StyleGAN2Loss(Loss):
                         real_apoe = torch.where(real_c[:, 1:] == 1)[1]
                         ce_loss = torch.nn.functional.cross_entropy(real_apoe_pred, real_apoe.long())
                         loss_Dreal = bce_loss + (mse_loss + ce_loss) * lambda_
-                    elif real_outputs_d.shape[1] == 4: ## rfmid case
+                    elif (real_outputs_d.shape[1] == 4) and (real_img.shape[1] == 3): ## rfmid case
                         dr_bce_loss = torch.nn.functional.binary_cross_entropy(
                             torch.sigmoid(real_dr_pred), real_c[:, 0])
                         mh_bce_loss = torch.nn.functional.binary_cross_entropy(

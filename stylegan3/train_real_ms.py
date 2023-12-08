@@ -154,6 +154,16 @@ def init_dataset_kwargs(data, name, use_labels, mode: str,
                 max_size=max_size,
                 xflip=False
             )
+        elif name == "rfmid":
+            dataset_kwargs = dnnlib.EasyDict(
+                class_name="training.dataset_real_ms.RFMiDDataset",
+                data_name=name,
+                path=data,
+                mode=mode,
+                use_labels=use_labels,
+                max_size=max_size,
+                xflip=False
+            )
         else:
             raise click.ClickException(f'--data_name: {name} dataloader not implemented')
         dataset_obj = dnnlib.util.construct_class_by_name(**dataset_kwargs) # Subclass of training.dataset.Dataset.

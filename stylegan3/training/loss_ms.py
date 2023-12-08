@@ -80,6 +80,7 @@ class StyleGAN2Loss(Loss):
                     gen_cmap_pred = gen_outputs_d[:, 1:4]
                     gen_digit_pred = gen_outputs_d[:, 4:]
                 elif real_img.shape[1] == 3: ## special case for retinal (source 1 is binary) channel is three
+                    print("it is retinal images")
                     gen_img_pred = gen_outputs_d[:, 0]
                     gen_cmap_pred = gen_outputs_d[:, [1, -1]] ## age and cylindrical
                     gen_digit_pred = gen_outputs_d[:, 2] ## cataract
@@ -170,21 +171,7 @@ class StyleGAN2Loss(Loss):
                 # loss_Dgen = torch.nn.functional.softplus(gen_logits) # -log(1 - sigmoid(gen_logits))
                 bce_loss = torch.nn.functional.binary_cross_entropy(
                     torch.sigmoid(gen_img_pred), torch.zeros_like(gen_img_pred, requires_grad=True).to(self.device))
-                # if gen_outputs_d.shape[1] > 4:
-                #     mse_loss = torch.nn.functional.mse_loss(gen_cmap_pred, gen_c[:, :3])
-                #     gen_digits = torch.where(gen_c[:, 3:] == 1)[1]
-                #     ce_loss = torch.nn.functional.cross_entropy(gen_digit_pred, gen_digits.long())
-                #     training_stats.report('Loss/scores/fake_labels', mse_loss)
-                #     training_stats.report('Loss/scores/fake_digits(ce loss)', ce_loss)
-                #     loss_Dgen = bce_loss + (mse_loss + ce_loss) * lambda_
-                # elif real_img.shape[1] == 3:
-                #     pass
-                # elif gen_outputs_d.shape[1] > 1:
-                #     mse_loss = torch.nn.functional.mse_loss(gen_cmap_pred, gen_c)
-                #     training_stats.report('Loss/scores/fake_labels', mse_loss)
-                #     loss_Dgen = bce_loss + mse_loss * lambda_
-                # else:
-                #     loss_Dgen = bce_loss
+                
                 loss_Dgen = bce_loss
             with torch.autograd.profiler.record_function('Dgen_backward'):
                 loss_Dgen.mean().mul(gain).backward()

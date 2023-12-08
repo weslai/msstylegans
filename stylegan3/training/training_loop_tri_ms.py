@@ -576,60 +576,7 @@ def training_loop(
                     for param, grad in zip(params, grads):
                         param.grad = grad.reshape(param.shape)
                 phase.opt.step()
-
-            # ## source 2
-            # # Accumulate gradients.
-            # phase.opt.zero_grad(set_to_none=True)
-            # phase.module.requires_grad_(True)
-            # for real_img, real_c, gen_z, gen_c in zip(phase_real_img2, phase_real_c2, phase_gen_z, phase_gen_c):
-            #     loss.accumulate_gradients(phase=phase.name, real_img=real_img, real_c=real_c, 
-            #                             gen_z=gen_z[batch_gpu:2*batch_gpu], gen_c=gen_c[batch_gpu:2*batch_gpu], gain=phase.interval, cur_nimg=cur_nimg,
-            #                             lambda_=cur_lambda)
-            # phase.module.requires_grad_(False)
-
-            # # Update weights.
-            # with torch.autograd.profiler.record_function(phase.name + '_opt'):
-            #     params = [param for param in phase.module.parameters() if param.grad is not None]
-            #     # if phase.name in ["Dmain", "Dreg", "Dboth"]:
-            #     #     ### TODO update certain weights
-            #     #     pass
-            #     if len(params) > 0:
-            #         flat = torch.cat([param.grad.flatten() for param in params])
-            #         if num_gpus > 1:
-            #             torch.distributed.all_reduce(flat)
-            #             flat /= num_gpus
-            #         misc.nan_to_num(flat, nan=0, posinf=1e5, neginf=-1e5, out=flat)
-            #         grads = flat.split([param.numel() for param in params])
-            #         for param, grad in zip(params, grads):
-            #             param.grad = grad.reshape(param.shape)
-            #     phase.opt.step()
             
-            # ## source 3
-            # # Accumulate gradients.
-            # phase.opt.zero_grad(set_to_none=True)
-            # phase.module.requires_grad_(True)
-            # for real_img, real_c, gen_z, gen_c in zip(phase_real_img3, phase_real_c3, phase_gen_z, phase_gen_c):
-            #     loss.accumulate_gradients(phase=phase.name, real_img=real_img, real_c=real_c, 
-            #                             gen_z=gen_z[2*batch_gpu:], gen_c=gen_c[2*batch_gpu:], gain=phase.interval, cur_nimg=cur_nimg,
-            #                             lambda_=cur_lambda)
-            # phase.module.requires_grad_(False)
-
-            # # Update weights.
-            # with torch.autograd.profiler.record_function(phase.name + '_opt'):
-            #     params = [param for param in phase.module.parameters() if param.grad is not None]
-            #     # if phase.name in ["Dmain", "Dreg", "Dboth"]:
-            #     #     ### TODO update certain weights
-            #     #     pass
-            #     if len(params) > 0:
-            #         flat = torch.cat([param.grad.flatten() for param in params])
-            #         if num_gpus > 1:
-            #             torch.distributed.all_reduce(flat)
-            #             flat /= num_gpus
-            #         misc.nan_to_num(flat, nan=0, posinf=1e5, neginf=-1e5, out=flat)
-            #         grads = flat.split([param.numel() for param in params])
-            #         for param, grad in zip(params, grads):
-            #             param.grad = grad.reshape(param.shape)
-            #     phase.opt.step()
             # Phase done.
             if phase.end_event is not None:
                 phase.end_event.record(torch.cuda.current_stream(device))
