@@ -232,16 +232,16 @@ def run_general_mse(opts):
         sampler_source1 = SourceSampling("retinal", label_path=os.path.join(data_path1, "trainset"))
         sampler_source1.get_graph()
         sampler_source1.get_causal_model()
-        sampler_source2 = SourceSampling("eyepacs", label_path=os.path.join(data_path2, "trainset"))
+        sampler_source2 = SourceSampling("rfmid", label_path=os.path.join(data_path2, "trainset"))
         sampler_source2.get_graph()
         sampler_source2.get_causal_model()
         sampler_sources["retinal"] = sampler_source1
-        sampler_sources["eyepacs"] = sampler_source2
+        sampler_sources["rfmid"] = sampler_source2
         if data_path3 is not None:
-            sampler_source3 = SourceSampling("rfmid", label_path=os.path.join(data_path3, "trainset"))
+            sampler_source3 = SourceSampling("eyepacs", label_path=os.path.join(data_path3, "trainset"))
             sampler_source3.get_graph()
             sampler_source3.get_causal_model()
-            sampler_sources["rfmid"] = sampler_source3
+            sampler_sources["eyepacs"] = sampler_source3
     else:
         if source_gan != "single":
             raise ValueError(f"source gan {source_gan} not found")

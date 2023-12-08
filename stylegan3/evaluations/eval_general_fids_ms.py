@@ -1,20 +1,19 @@
 from typing import Tuple, Union
-import os
+import os, sys
 import torch
 import numpy as np
 import pandas as pd
 import json
 import click
+sys.path.append("/dhc/home/wei-cheng.lai/projects/msstylegans")
+import dnnlib
 ### -------------------
 ### --- Own ---
 ### -------------------
 from eval_utils import calc_fid_score
 from utils import load_generator, generate_images
-from eval_dataset import ConcatDataset
-from eval_dataset import UKBiobankMRIDataset2D
-from eval_dataset import UKBiobankRetinalDataset2D
-from training.dataset_real_ms import AdniMRIDataset2D, KaggleEyepacsDataset
 from latent_mle_real_ms import SourceSampling
+from eval_general_mse_real_ms import load_dataset
 
 # --------------------------------------------------------------------------------------
 def parse_vec2(s: Union[str, Tuple[float, float]]) -> Tuple[float, float]:
@@ -29,90 +28,83 @@ def parse_vec2(s: Union[str, Tuple[float, float]]) -> Tuple[float, float]:
         return (float(parts[0]), float(parts[1]))
     raise ValueError(f'cannot parse 2-vector {s}')
 # --------------------------------------------------------------------------------------
+def run_general_fid(opts):
+    ## config
+    dataset = opts.dataset 
+    network_pkl = opts.network_pkl
+    metric_jsonl = opts.metric_jsonl
+    data_path1 = opts.data_path1
+    data_path2 = opts.data_path2
+    data_path3 = opts.data_path3
+    source_gan = opts.source_gan
+    num_samples = opts.num_samples
+    truncation_psi = opts.truncation_psi
+    noise_mode = opts.noise_mode
+    translate = opts.translate
+    rotate = opts.rotate
+    outdir = opts.outdir
 
-@click.command()
-@click.option('--network_specific', 'network_pkl', help='Network pickle filepath', default=None, required=False)
-@click.option('--network', 'metric_jsonl', help='Metric jsonl file for one training', default=None, required=False)
-@click.option('--dataset', 'dataset', type=click.Choice(['mri', 
-                                                         'retinal', None]),
-              default=None, show_default=True)
-@click.option('--data-path1', 'data_path1', type=str, help='Path to the data source 1', required=True)
-@click.option('--data-path2', 'data_path2', type=str, help='Path to the data source 2', default=None, required=False)
-@click.option('--num-samples', 'num_samples', type=int, help='Number of samples to generate', default=10000, show_default=True)
-@click.option('--trunc', 'truncation_psi', type=float, help='Truncation psi', default=1, show_default=True)
-@click.option('--noise-mode', 'noise_mode', help='Noise mode', type=click.Choice(['const', 'random', 'none']), 
-              default='const', show_default=True)
-@click.option('--translate', help='Translate XY-coordinate (e.g. \'0.3,1\')', type=parse_vec2, 
-              default='0,0', show_default=True, metavar='VEC2')
-@click.option('--rotate', help='Rotation angle in degrees', type=float, default=0, 
-              show_default=True, metavar='ANGLE')
-@click.option('--outdir', help='Where to save the output images', type=str, required=True, metavar='DIR')
-### define strata with histogram
-## get datasets
-def run_general_fid(
-    network_pkl: str,
-    metric_jsonl: str,
-    dataset: str,
-    data_path1: str,
-    data_path2: str,
-    num_samples: int,
-    truncation_psi: float,
-    noise_mode: str,
-    translate: Tuple[float,float],
-    rotate: float,
-    outdir: str
-):
-    if network_pkl is not None:
-        assert metric_jsonl is None
+    ds = load_dataset(dataset, source_gan=source_gan, data_path1=data_path1, data_path2=data_path2, data_path3=data_path3)
+    if source_gan == "single":
+        target_dataset = ds
+        target_dataset._load_raw_labels()
     else:
-        assert metric_jsonl is not None
-    os.makedirs(outdir, exist_ok=True)
-    config_dict = {
-        "gen_specific": network_pkl, "gen": metric_jsonl, "dataset": dataset, 
-        "data_path1": data_path1, "data_path2": data_path2,
-        "num_samples": num_samples, "out_dir": outdir}
-    with open(os.path.join(outdir, "generalfid_config.json"), "w") as f:
-        json.dump(config_dict, f)
-
-    if dataset == "mri":
-        ds1 = UKBiobankMRIDataset2D(data_name="ukb", 
-                                    path=data_path1, 
-                                    mode="test", 
-                                    use_labels=True,
-                                    xflip=False)
-        ds2 = AdniMRIDataset2D(data_name="adni", 
-                                    path=data_path2, 
-                                    mode="test", 
-                                    use_labels=True,
-                                    xflip=False)
-        concat_ds = ConcatDataset(ds1, ds2)
-        sampler1 = SourceSampling(dataset="ukb", label_path=ds1._path)
-        sampler2 = SourceSampling(dataset="adni", label_path=ds2._path)
-        df = sampler1.get_graph()
-        df2 = sampler2.get_graph()
-        model = sampler1.get_causal_model()
-        model2 = sampler2.get_causal_model()
-
-    elif dataset == "retinal":
-        ds1 = UKBiobankRetinalDataset2D(data_name="retinal",
-                                    path=data_path1,
-                                    mode="test",
-                                    use_labels=True,
-                                    xflip=False)
-        ds2 = KaggleEyepacsDataset(data_name="eyepacs",
-                                    path=data_path2,
-                                    mode="test",
-                                    use_labels=True,
-                                    xflip=False)
-        concat_ds = ConcatDataset(ds1, ds2)
-        sampler1 = SourceSampling(dataset="retinal", label_path=ds1._path)
-        sampler2 = SourceSampling(dataset="eyepacs", label_path=ds2._path)
-        df = sampler1.get_graph()
-        df2 = sampler2.get_graph()
-        model = sampler1.get_causal_model()
-        model2 = sampler2.get_causal_model()
+        target_dataset = ds[0] if dataset in ["ukb", "retinal"] else ds[1] if dataset in ["adni", "rfmid"] else ds[2]
+        target_dataset._load_raw_labels()
+        dataset1 = ds[0]
+        dataset2 = ds[1] if type(ds) == tuple else None
+        dataset3 = ds[2] if opts.data_path3 is not None else None
+    
+    ## load latent models
+    sampler_sources = {}
+    if source_gan == "multi_mri":
+        sampler_source1 = SourceSampling("ukb", label_path=os.path.join(data_path1, "trainset"))
+        sampler_source1.get_graph()
+        sampler_source1.get_causal_model()
+        sampler_source2 = SourceSampling("adni", label_path=os.path.join(data_path2, "trainset"))
+        sampler_source2.get_graph()
+        sampler_source2.get_causal_model()
+        sampler_sources["ukb"] = sampler_source1
+        sampler_sources["adni"] = sampler_source2
+        if data_path3 is not None:
+            sampler_source3 = SourceSampling("nacc", label_path=os.path.join(data_path3, "trainset"))
+            sampler_source3.get_graph()
+            sampler_source3.get_causal_model()
+            sampler_sources["nacc"] = sampler_source3
+    elif source_gan == "multi_retina":
+        sampler_source1 = SourceSampling("retinal", label_path=os.path.join(data_path1, "trainset"))
+        sampler_source1.get_graph()
+        sampler_source1.get_causal_model()
+        sampler_source2 = SourceSampling("eyepacs", label_path=os.path.join(data_path2, "trainset"))
+        sampler_source2.get_graph()
+        sampler_source2.get_causal_model()
+        sampler_sources["retinal"] = sampler_source1
+        sampler_sources["eyepacs"] = sampler_source2
+        if data_path3 is not None:
+            sampler_source3 = SourceSampling("rfmid", label_path=os.path.join(data_path3, "trainset"))
+            sampler_source3.get_graph()
+            sampler_source3.get_causal_model()
+            sampler_sources["rfmid"] = sampler_source3
     else:
-        raise NotImplementedError
+        if source_gan != "single":
+            raise ValueError(f"source gan {source_gan} not found")
+    cov_dict = {}
+    if source_gan != "single":
+        if dataset == "ukb" or dataset == "adni" or dataset == "nacc":
+            if dataset3 is not None:
+                dataset1._load_raw_labels()
+                dataset2._load_raw_labels()
+                dataset3._load_raw_labels()
+                cov_dict["age_max"] = max(dataset1.model["age_max"], dataset2.model["age_max"], 
+                                        dataset3.model["age_max"])
+                cov_dict["age_min"] = min(dataset1.model["age_min"], dataset2.model["age_min"], 
+                                        dataset3.model["age_min"])
+            else:
+                dataset1._load_raw_labels()
+                dataset2._load_raw_labels()
+                cov_dict["age_max"] = max(dataset1.model["age_max"], dataset2.model["age_max"])
+                cov_dict["age_min"] = min(dataset1.model["age_min"], dataset2.model["age_min"])
+    
     # Load the network.
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     batch_gen = 4
@@ -126,38 +118,81 @@ def run_general_fid(
     real_imgs = []
     gen_imgs = []
     ## real images
-    for source1, source2 in torch.utils.data.DataLoader(concat_ds, batch_size=batch_gen, shuffle=True, **data_loader_kwargs):
-        img1, _labels1 = source1[0], source1[1]
-        img2, _labels2 = source2[0], source2[1]
-        for img in [img1, img2]:
-            if img.shape[1] != 1:
-                img = torch.tensor(img)
-            real_imgs.append(img)
+    for source in torch.utils.data.DataLoader(target_dataset, batch_size=batch_gen, shuffle=True, **data_loader_kwargs):
+        img, _labels = source[0], source[1]
+        if img.shape[1] != 1:
+            img = torch.tensor(img)
+        real_imgs.append(img)
     ## fake images
-    for _ in range(num_samples // (batch_gen * 2)):
+    for _ in range(num_samples // batch_gen):
         batch_labels = []
-        z = torch.randn(batch_gen * 2, Gen.z_dim).to(device)
-        for _i in range(batch_gen):
-            ## (c1, c2, c3)
-            source_c1, source_c2 = concat_ds[np.random.randint(len(concat_ds))]
-            label1, label2 = source_c1[1], source_c2[1]
-            label1_norm = ds1._normalise_labels(label1[0].reshape(-1, 1), label1[1].reshape(-1, 1),
-                                                label1[2].reshape(-1, 1)).reshape(1, -1)
-            if dataset == "mri":
-                age2 = label2[0].reshape(-1, 1) * (ds2.model["age_max"] - ds2.model["age_min"]) + ds2.model["age_min"]
-                label1_hidd = sampler2.sampling_given_age(label1[0].reshape(-1, 1), normalize=True) ## age, cdr
-                label2_hidd = sampler1.sampling_given_age(age2, normalize=True) ## age, vols
-                label1_norm = torch.cat([torch.tensor(label1_norm), label1_hidd[0, 1:].reshape(1, -1), torch.tensor([0]).reshape(-1, 1)], dim=1)
-                label2_norm = torch.cat([label2_hidd, torch.tensor(label2[1:].reshape(1, -1)), torch.tensor([1]).reshape(-1, 1)], dim=1)
-            elif dataset == "retinal": ## ukb + eyepacs
-                label1_hidd = sampler2.sampling_model(1)[-1] ## discease
-                label2_hidd = sampler1.sample_normalize(1) ## age, bp, spherical
-                label1_norm = torch.cat([torch.tensor(label1_norm), label1_hidd, torch.tensor([0]).reshape(-1, 1)], dim=1)
-                label2_norm = torch.cat([label2_hidd, torch.tensor(label2.reshape(1, -1)), torch.tensor([1]).reshape(-1, 1)], dim=1)
-            l = torch.cat([label1_norm, label2_norm], dim=0).to(device)
-            batch_labels.append(l)
-        ll = torch.cat(batch_labels, dim=0).to(device)
-        batch_imgs = generate_images(Gen, z, ll, truncation_psi, noise_mode, translate, rotate).permute(0,3,1,2)
+        z = torch.randn(batch_gen, Gen.z_dim).to(device)
+        for idx in np.random.choice(range(len(target_dataset)), batch_gen):
+                batch_labels.append(target_dataset.get_norm_label(idx))
+        l = torch.from_numpy(np.stack(batch_labels, axis=0)).to(device)
+        
+        if source_gan == "multi_mri":
+            if len(sampler_sources) == 3: ## three sources
+                if dataset == "ukb":
+                    age = l[:, 0] * torch.tensor(dataset1.model["age_max"] - dataset1.model["age_min"]) + torch.tensor(dataset1.model["age_min"])
+                    gen_c3 = sampler_sources["adni"].sampling_given_age(age.cpu().detach(), normalize=True)
+                    gen_c4 = sampler_sources["nacc"].sampling_given_age(age.cpu().detach(), normalize=True)
+                    c_source = torch.tensor([1, 0, 0] * age.shape[0]).reshape(age.shape[0], -1)
+                    age_norm = (age - cov_dict["age_min"]) / (cov_dict["age_max"] - cov_dict["age_min"])
+                    all_c = torch.cat([age_norm.reshape(-1, 1).cpu().detach(), l[:, 1:].cpu().detach(), 
+                                        gen_c3[:, 1:], gen_c4[:, 1:], c_source], dim=1).to(device)
+                elif dataset == "adni":
+                    age = l[:, 0] * torch.tensor(dataset2.model["age_max"] - dataset2.model["age_min"]) + torch.tensor(dataset2.model["age_min"])
+                    gen_c2 = sampler_sources["ukb"].sampling_given_age(age.cpu().detach(), normalize=True)
+                    gen_c4 = sampler_sources["nacc"].sampling_given_age(age.cpu().detach(), normalize=True)
+                    c_source = torch.tensor([0, 1, 0] * age.shape[0]).reshape(age.shape[0], -1)
+                    age_norm = (age - cov_dict["age_min"]) / (cov_dict["age_max"] - cov_dict["age_min"])
+                    all_c = torch.cat([age_norm.reshape(-1, 1).cpu().detach(), gen_c2[:, 1:], 
+                                        l[:, 1:].cpu().detach(), gen_c4[:, 1:], c_source], dim=1).to(device)
+            elif len(sampler_sources) == 2: ## two sources
+                if dataset == "ukb":
+                    age = l[:, 0] * torch.tensor(dataset1.model["age_max"] - dataset1.model["age_min"]) + torch.tensor(dataset1.model["age_min"])
+                    gen_c3 = sampler_sources["adni"].sampling_given_age(age.cpu().detach(), normalize=True)
+                    c_source = torch.tensor([0] * age.shape[0]).reshape(age.shape[0], -1)
+                    age_norm = (age - cov_dict["age_min"]) / (cov_dict["age_max"] - cov_dict["age_min"])
+                    all_c = torch.cat([age_norm.reshape(-1, 1).cpu().detach(), l[:, 1:].cpu().detach(), 
+                                        gen_c3[:, 1:], c_source], dim=1).to(device)
+                elif dataset == "adni":
+                    age = l[:, 0] * torch.tensor(dataset2.model["age_max"] - dataset2.model["age_min"]) + torch.tensor(dataset2.model["age_min"])
+                    gen_c2 = sampler_sources["ukb"].sampling_given_age(age.cpu().detach(), normalize=True)
+                    c_source = torch.tensor([1] * age.shape[0]).reshape(age.shape[0], -1)
+                    age_norm = (age - cov_dict["age_min"]) / (cov_dict["age_max"] - cov_dict["age_min"])
+                    all_c = torch.cat([age_norm.reshape(-1, 1).cpu().detach(), gen_c2[:, 1:], 
+                                        l[:, 1:].cpu().detach(), c_source], dim=1).to(device)
+        elif source_gan == "multi_retina":
+            if len(sampler_sources) == 3:
+                if dataset == "retinal":
+                    gen_c3 = sampler_sources["rfmid"].sampling_model(l.shape[0])[-1]
+                    gen_c4 = sampler_sources["eyepacs"].sampling_model(l.shape[0])[-1]
+                    c_source = torch.tensor([1, 0, 0] * l.shape[0]).reshape(l.shape[0], -1)
+                    all_c = torch.cat([l.cpu().detach(), gen_c3, gen_c4, c_source], dim=1).to(device)
+                elif dataset == "rfmid":
+                    gen_c2 = sampler_sources["retinal"].sample_normalize(l.shape[0])
+                    gen_c4 = sampler_sources["eyepacs"].sampling_model(l.shape[0])[-1]
+                    c_source = torch.tensor([0, 1, 0] * l.shape[0]).reshape(l.shape[0], -1)
+                    all_c = torch.cat([gen_c2, l.cpu().detach(), gen_c4, c_source], dim=1).to(device)
+                elif dataset == "eyepacs":
+                    gen_c2 = sampler_sources["retinal"].sample_normalize(l.shape[0])
+                    gen_c3 = sampler_sources["rfmid"].sampling_model(l.shape[0])[-1]
+                    c_source = torch.tensor([0, 0, 1] * l.shape[0]).reshape(l.shape[0], -1)
+                    all_c = torch.cat([gen_c2, gen_c3, l.cpu().detach(), c_source], dim=1).to(device)
+            elif len(sampler_sources) == 2:
+                if dataset == "retinal":
+                    gen_c3 = sampler_sources["rfmid"].sampling_model(l.shape[0])[-1]
+                    c_source = torch.tensor([0] * l.shape[0]).reshape(l.shape[0], -1)
+                    all_c = torch.cat([l.cpu().detach(), gen_c3, c_source], dim=1).to(device)
+                elif dataset == "rfmid":
+                    gen_c2 = sampler_sources["retinal"].sample_normalize(l.shape[0])
+                    c_source = torch.tensor([1] * l.shape[0]).reshape(l.shape[0], -1)
+                    all_c = torch.cat([gen_c2, l.cpu().detach(), c_source], dim=1).to(device)
+        batch_imgs = generate_images(Gen, z, l if source_gan == "single" else all_c, 
+                                    truncation_psi, 
+                                    noise_mode, translate, rotate).permute(0,3,1,2)
         gen_imgs.append(batch_imgs)
     if dataset != "retinal":
         real_imgs = torch.cat(real_imgs, dim=0).repeat([1, 3, 1, 1]).to(device) ## (batch_size, channel (3), pixel, pixel)
@@ -175,10 +210,49 @@ def run_general_fid(
                   dataset=dataset,
                   network=metric_jsonl,
                   data_path1=data_path1,
-                  data_path2=data_path2 if data_path2 is not None else "None"
+                  data_path2=data_path2 if data_path2 is not None else "None",
+                  data_path3 = data_path3 if data_path3 is not None else "None"
                   )
     result_df = pd.DataFrame.from_dict(result, orient="index").T
-    result_df.to_csv(os.path.join(outdir, "ms_general_fid.csv"), index=False)
+    result_df.to_csv(os.path.join(outdir, f"general_fid_{source_gan}_{dataset}.csv"), index=False)
+# --------------------------------------------------------------------------------------
+@click.command()
+@click.option('--network_specific', 'network_pkl', help='Network pickle filepath', default=None, required=False)
+@click.option('--network', 'metric_jsonl', help='Metric jsonl file for one training', default=None, required=False)
+@click.option('--dataset', 'dataset', type=click.Choice(['ukb', 'retinal', 'adni', 'nacc', 'eyepacs', 'rfmid',
+                                                         None]), default=None, show_default=True)
+@click.option('--data-path1', 'data_path1', type=str, help='Path to the data source 1', required=True)
+@click.option('--data-path2', 'data_path2', type=str, help='Path to the data source 2', required=False)
+@click.option('--data-path3', 'data_path3', type=str, help='Path to the data source 3', required=False)
+
+@click.option('--source-gan', 'source_gan', type=click.Choice(["single", "multi_mri", "multi_retina"]), help='which source of GAN', default="single", required=True)
+@click.option('--num-samples', 'num_samples', type=int, help='Number of samples to generate', default=10000, show_default=True)
+@click.option('--trunc', 'truncation_psi', type=float, help='Truncation psi', default=1, show_default=True)
+@click.option('--noise-mode', 'noise_mode', help='Noise mode', type=click.Choice(['const', 'random', 'none']), 
+              default='const', show_default=True)
+@click.option('--translate', help='Translate XY-coordinate (e.g. \'0.3,1\')', type=parse_vec2, 
+              default='0,0', show_default=True, metavar='VEC2')
+@click.option('--rotate', help='Rotation angle in degrees', type=float, default=0, 
+              show_default=True, metavar='ANGLE')
+@click.option('--outdir', help='Where to save the output images', type=str, required=True, metavar='DIR')
+
+def main(**kwargs):
+    opts = dnnlib.EasyDict(kwargs)
+    assert opts.network_pkl is not None or opts.metric_jsonl is not None
+
+    os.makedirs(opts.outdir, exist_ok=True)
+    config_dict = {
+        "gen_specific": opts.network_pkl,
+        "gen": opts.metric_jsonl,
+        "dataset": opts.dataset, 
+        "data_path1": opts.data_path1, "data_path2": opts.data_path2,
+        "data_path3": opts.data_path3, "source_gan": opts.source_gan,
+        "num_samples": opts.num_samples, "out_dir": opts.outdir}
+    with open(os.path.join(opts.outdir, "strata_mse_config.json"), "w") as f:
+        json.dump(config_dict, f)
+    
+    run_general_fid(opts)
+## get datasets
     
 if __name__ == "__main__":
-    run_general_fid()
+    main()

@@ -27,7 +27,7 @@ def eval_loss_real_ms(
     if source_gan == "single":
         target_dataset = dataset1
     else:
-        target_dataset = dataset1 if data_name in ["ukb", "retinal"] else dataset2 if data_name in ["adni", "eyepacs"] else dataset3
+        target_dataset = dataset1 if data_name in ["ukb", "retinal"] else dataset2 if data_name in ["adni", "rfmid"] else dataset3
     cov_dict = {}
     if source_gan != "single":
         if data_name == "ukb" or data_name == "adni" or data_name == "nacc":
@@ -116,6 +116,15 @@ def eval_loss_real_ms(
                         gen_c3 = sampler_sources["eyepacs"].sampling_model(l.shape[0])[-1]
                         c_source = torch.tensor([0, 0, 1] * l.shape[0]).reshape(l.shape[0], -1)
                         all_c = torch.cat([gen_c2, gen_c3, l.cpu().detach(), c_source], dim=1).to(device)
+                elif len(sampler_sources) == 2:
+                    if data_name == "retinal":
+                        gen_c3 = sampler_sources["rfmid"].sampling_model(l.shape[0])[-1]
+                        c_source = torch.tensor([0] * l.shape[0]).reshape(l.shape[0], -1)
+                        all_c = torch.cat([l.cpu().detach(), gen_c3, c_source], dim=1).to(device)
+                    elif data_name == "rfmid":
+                        gen_c2 = sampler_sources["retinal"].sample_normalize(l.shape[0])
+                        c_source = torch.tensor([1] * l.shape[0]).reshape(l.shape[0], -1)
+                        all_c = torch.cat([gen_c2, l.cpu().detach(), c_source], dim=1).to(device)
             batch_imgs = generate_images(Gen, z, l if source_gan == "single" else all_c, 
                                         truncation_psi, 
                                         noise_mode, translate, rotate).permute(0,3,1,2)
@@ -175,9 +184,9 @@ def eval_loss_real_ms(
             if source_gan == "multi_retina":
                 if data_name == "eyepacs":
                     gen_c2 = sampler_sources["retinal"].sample_normalize(l.shape[0])
-                    gen_c4 = sampler_sources["rfmid"].sampling_model(l.shape[0])[-1]
-                    c_source = torch.tensor([0, 1, 0] * l.shape[0]).reshape(l.shape[0], -1)
-                    all_c = torch.cat([gen_c2, l.cpu().detach(), gen_c4, c_source], dim=1).to(device)
+                    gen_c3 = sampler_sources["rfmid"].sampling_model(l.shape[0])[-1]
+                    c_source = torch.tensor([0, 0, 1] * l.shape[0]).reshape(l.shape[0], -1)
+                    all_c = torch.cat([gen_c2, gen_c3, l.cpu().detach(), c_source], dim=1).to(device)
                 else:
                     raise NotImplementedError
             batch_imgs = generate_images(Gen, z, l if source_gan == "single" else all_c,
@@ -246,7 +255,7 @@ def strata_eval_real_ms(
     if source_gan == "single":
         target_dataset = dataset1
     else:
-        target_dataset = dataset1 if data_name in ["ukb", "retinal"] else dataset2 if data_name in ["adni", "eyepacs"] else dataset3
+        target_dataset = dataset1 if data_name in ["ukb", "retinal"] else dataset2 if data_name in ["adni", "rfmid"] else dataset3
     cov_dict = {}
     if source_gan != "single":
         if data_name == "ukb" or data_name == "adni" or data_name == "nacc":
