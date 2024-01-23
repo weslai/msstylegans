@@ -54,7 +54,7 @@ def plot_two_covs_images(
     sns.set_style("ticks")
     sns.set_context("paper")
     sns.set_palette("colorblind")
-    fig = plt.figure(figsize=(ncols*1.2, nrows*1.2))
+    fig = plt.figure(figsize=(ncols*1, nrows*1.6))
     gs = gridspec.GridSpec(nrows, ncols,
         wspace=0.0, hspace=0.0
     )
@@ -68,16 +68,26 @@ def plot_two_covs_images(
                 img = images[i * ncols + j][:, :, 0]
                 ax.imshow(img, cmap="gray", vmin=0, vmax=255)
             if j == 0:
-                ax.set_ylabel("{:.1f}".format(c2[i][0]), fontsize=10)
+                if abs(c2[i][0]) > 10000:
+                    str_c2 = c2[i][0] / 1000 
+                    str_c2 = f"{str_c2:.1f}k"
+                    ax.set_ylabel(str_c2, fontsize=12)
+                else:
+                    ax.set_ylabel("{:.1f}".format(c2[i][0]), fontsize=12)
             if i == nrows - 1:
-                ax.set_xlabel("{:.1f}".format(c3[j][0]), fontsize=10)
+                if abs(c3[j][0]) > 10000:
+                    str_c3 = c3[j][0] / 1000 
+                    str_c3 = f"{str_c3:.1f}k"
+                    ax.set_xlabel(str_c3, fontsize=12)
+                else:
+                    ax.set_xlabel("{:.1f}".format(c3[j][0]), fontsize=12)
             ax.set_xticklabels([])
             ax.set_yticklabels([])
             ax.set_xticks([])
             ax.set_yticks([])
-    fig.suptitle("Generated Images", fontsize=14)
-    fig.supxlabel(f"{c3_name}", fontsize=14)
-    fig.supylabel(f"{c2_name}", fontsize=14)
+    # fig.suptitle("Generated Images", fontsize=16)
+    fig.supxlabel(f"{c3_name}", fontsize=16)
+    fig.supylabel(f"{c2_name}", fontsize=16)
     if save_path is not None:
         plt.savefig(save_path)
         save_path = save_path.replace(".png", ".pdf")
@@ -119,9 +129,19 @@ def plot_two_covs_images_dualsources(
                 img = images[i * ncols + j][:, :, 0]
                 ax.imshow(img, cmap="gray", vmin=0, vmax=255)
             if j == 0:
-                ax.set_ylabel("{:.1f}".format(c2[i][0]), fontsize=10)
+                if abs(c2[i][0]) > 10000:
+                    str_c2 = c2[i][0] / 1000 
+                    str_c2 = f"{str_c2:.1f}k"
+                    ax.set_ylabel(str_c2, fontsize=12)
+                else:
+                    ax.set_ylabel("{:.1f}".format(c2[i][0]), fontsize=12)
             if i == nrows - 1:
-                ax.set_xlabel("{:.1f}".format(c3[j][0]), fontsize=10)
+                if abs(c3[j][0]) > 10000:
+                    str_c3 = c3[j][0] / 1000 
+                    str_c3 = f"{str_c3:.1f}k"
+                    ax.set_xlabel(str_c3, fontsize=12)
+                else:
+                    ax.set_xlabel("{:.1f}".format(c3[j][0]), fontsize=12)
             ax.set_xticklabels([])
             ax.set_yticklabels([])
             ax.set_xticks([])
