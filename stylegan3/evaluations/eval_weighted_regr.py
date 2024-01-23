@@ -132,9 +132,9 @@ def main(
         f1_s1 = df_s1["f1"].values
         f1_s2 = df_s2["f1"].values
 
-        corr_ms = df_ms["corr"].values
-        corr_s1 = df_s1["corr"].values
-        corr_s2 = df_s2["corr"].values
+        corr_ms = df_ms["balanced_acc"].values
+        corr_s1 = df_s1["balanced_acc"].values
+        corr_s2 = df_s2["balanced_acc"].values
 
         w_accuracy_ms = accuracy_ms * (num_ms / np.sum(num_ms))
         w_accuracy_s1 = accuracy_s1 * (num_s1 / np.sum(num_s1))
@@ -172,9 +172,9 @@ def main(
         df_s1["w_f1"] = w_f1_s1
         df_s2["w_f1"] = w_f1_s2
 
-        df_ms["w_corr"] = w_corr_ms
-        df_s1["w_corr"] = w_corr_s1
-        df_s2["w_corr"] = w_corr_s2
+        df_ms["w_balanced_acc"] = w_corr_ms
+        df_s1["w_balanced_acc"] = w_corr_s1
+        df_s2["w_balanced_acc"] = w_corr_s2
 
         w_avg_accuracy_ms = np.sum(w_accuracy_ms).reshape(1,)
         w_avg_accuracy_s1 = np.sum(w_accuracy_s1).reshape(1,)
@@ -240,7 +240,7 @@ def main(
                                                 "ms_precision", "s1_precision", "s2_precision",
                                                 "ms_recall", "s1_recall", "s2_recall",
                                                 "ms_f1", "s1_f1", "s2_f1",
-                                                "ms_corr", "s1_corr", "s2_corr"])
+                                                "ms_balanced_acc", "s1_balanced_acc", "s2_balanced_acc"])
         avg_regr_df = pd.DataFrame(np.array([avg_accuracy_ms, avg_accuracy_s1, avg_accuracy_s2,
                                             std_accuracy_ms, std_accuracy_s1, std_accuracy_s2,
                                             avg_precision_ms, avg_precision_s1, avg_precision_s2,
@@ -259,8 +259,8 @@ def main(
                                                     "ms_recall_std", "s1_recall_std", "s2_recall_std",
                                                     "ms_f1_mu", "s1_f1_mu", "s2_f1_mu",
                                                     "ms_f1_std", "s1_f1_std", "s2_f1_std",
-                                                    "ms_corr_mu", "s1_corr_mu", "s2_corr_mu",
-                                                    "ms_corr_std", "s1_corr_std", "s2_corr_std"])
+                                                    "ms_balanced_acc_mu", "s1_balanced_acc_mu", "s2_balanced_acc_mu",
+                                                    "ms_balanced_acc_std", "s1_balanced_acc_std", "s2_balanced_acc_std"])
     else:
         raise NotImplementedError
 

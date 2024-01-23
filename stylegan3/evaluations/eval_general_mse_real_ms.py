@@ -96,17 +96,18 @@ def load_dataset(
                                     mode="test", 
                                     use_labels=True,
                                     xflip=False)
-        ds2 = KaggleEyepacsDataset(data_name="eyepacs",
+        ds2 = RFMiDDataset(data_name="rfmid",
                             path=data_path2,
                             mode="test",
                             use_labels=True,
                             xflip=False)
         if data_path3 is not None:
-            ds3 = RFMiDDataset(data_name="rfmid",
-                                path=data_path3,
-                                mode="test",
-                                use_labels=True,
-                                xflip=False)
+            ds3 = KaggleEyepacsDataset(data_name="eyepacs",
+                            path=data_path3,
+                            mode="test",
+                            use_labels=True,
+                            xflip=False)
+
     else:
         raise ValueError(f"dataset {dataset} not found")
     return ds1 if source_gan == "single" else (ds1, ds2) if data_path3 is None else (ds1, ds2, ds3)
@@ -145,7 +146,7 @@ def run_general_mse(opts):
     if source_gan == "single":
         labels_all = ds._load_raw_labels()
     else:
-        labels_all = ds[0]._load_raw_labels() if dataset in ["ukb", "retinal"] else ds[1]._load_raw_labels() if dataset in ["adni", "eyepacs"] else ds[2]._load_raw_labels()
+        labels_all = ds[0]._load_raw_labels() if dataset in ["ukb", "retinal"] else ds[1]._load_raw_labels() if dataset in ["adni", "rfmid"] else ds[2]._load_raw_labels()
     if dataset in ["ukb", "retinal", "adni", "rfmid"]:
         c1_all, c2_all, c3_all = labels_all[:,0], labels_all[:,1], labels_all[:,2]
         c1_min, c1_max = np.min(c1_all), np.max(c1_all)

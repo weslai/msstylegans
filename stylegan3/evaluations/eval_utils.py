@@ -10,8 +10,10 @@ import scipy.stats as stats
 import json
 import dnnlib
 from torchmetrics.image.fid import FrechetInceptionDistance
+from torchmetrics.image.kid import KernelInceptionDistance
 from torchmetrics import MeanSquaredError, MeanAbsoluteError
 from torchmetrics import Accuracy, Precision, Recall, F1Score
+from torchmetrics.classification import BinarySpecificity, BinaryRecall
 
 from metrics.metric_main import is_valid_metric, _metric_dict
 ### -----------
@@ -158,6 +160,28 @@ def calc_fid_score(
     fid_score = fid.compute()
     return fid_score
 
+def calc_kid_score(
+    img_dist1,
+    img_dist2,
+    batch_size=64
+):
+    """
+    Calculate KID score for two image distributions.
+    Args:
+        img_dist1 (torch.Tensor): image distribution 1
+        img_dist2 (torch.Tensor): image distribution 2
+        batch_size (int): batch size
+    """
+    _ = torch.manual_seed(64)
+    kid = KernelInceptionDistance(feature=2048, subset_size=batch_size).to(device=img_dist1.device)
+    for i in range(0, len(img_dist1), batch_size):
+        kid.update(img_dist1[i:min(i+batch_size, len(img_dist1))], real=True)
+        kid.update(img_dist2[i:min(i+batch_size, len(img_dist1))], real=False)
+    for i in range(len(img_dist1), len(img_dist2), batch_size):
+        kid.update(img_dist2[i:min(i+batch_size, len(img_dist2))], real=False)
+    kid_score = kid.compute()
+    return kid_score
+
 
 def calc_mean_scores(
     genimg_dist,
@@ -186,23 +210,43 @@ def calc_mean_scores(
     gen_predictions = torch.concat(gen_predictions, axis=0).to(device=true_labels.device)
     real_predictions = torch.concat(real_predictions, axis=0).to(device=true_labels.device)
 
-    if covariate in ["cataract", "disease_risk", "MH", "TSLN", "apoe4", "level"]:
+    # if covariate in ["cataract", "disease_risk", "MH", "TSLN", "apoe4", "level"]:
+    if covariate in ["disease_risk", "MH", "TSLN", "apoe4", "level"]:
         if covariate != "apoe4":
             accuracy = Accuracy(task="binary").to(device=true_labels.device)
             precision = Precision(task="binary").to(device=true_labels.device)
             recall = Recall(task="binary").to(device=true_labels.device)
             f1 = F1Score(task="binary").to(device=true_labels.device)
+            binaryRecall = BinaryRecall().to(device=true_labels.device)
+            binarySpecificity = BinarySpecificity().to(device=true_labels.device)
+            gen_predictions = torch.sigmoid(gen_predictions)
+            gen_predictions = torch.where(gen_predictions > 0.5, 1, 0).reshape(-1, 1)
+            real_predictions = torch.sigmoid(real_predictions)
+            real_predictions = torch.where(real_predictions > 0.5, 1, 0).reshape(-1, 1)
+            specificity_score = binarySpecificity(gen_predictions, true_labels).cpu().detach().numpy()
+            sensitivity_score = binaryRecall(gen_predictions, true_labels).cpu().detach().numpy()
+            balanced_accuracy_score = (specificity_score + sensitivity_score) / 2
+            gen_corr = np.corrcoef(gen_predictions.flatten().cpu().detach().numpy(), 
+                                   true_labels.flatten().cpu().detach().numpy())[0, 1]
         else:
             ncls = 3
             accuracy = Accuracy(task="multiclass", num_classes=ncls).to(device=true_labels.device)
             precision = Precision(task="multiclass", num_classes=ncls).to(device=true_labels.device)
             recall = Recall(task="multiclass", num_classes=ncls).to(device=true_labels.device)
             f1 = F1Score(task="multiclass", num_classes=ncls).to(device=true_labels.device)
+            gen_predictions = torch.softmax(gen_predictions, dim=1)
+            gen_predictions = torch.argmax(gen_predictions, dim=1)
+            real_predictions = torch.softmax(real_predictions, dim=1)
+            real_predictions = torch.argmax(real_predictions, dim=1)
         accuracy_score = accuracy(gen_predictions, true_labels).cpu().detach().numpy()
         precision_score = precision(gen_predictions, true_labels).cpu().detach().numpy()
         recall_score = recall(gen_predictions, true_labels).cpu().detach().numpy()
         f1_score = f1(gen_predictions, true_labels).cpu().detach().numpy()
-
+        # accuracy_score = accuracy(gen_predictions, real_predictions).cpu().detach().numpy()
+        # precision_score = precision(gen_predictions, real_predictions).cpu().detach().numpy()
+        # recall_score = recall(gen_predictions, real_predictions).cpu().detach().numpy()
+        # f1_score = f1(gen_predictions, real_predictions).cpu().detach().numpy()
+        
     else:
         mse = MeanSquaredError().to(device=true_labels.device)
         mse_score = mse(gen_predictions, real_predictions).cpu().detach().numpy()
@@ -215,12 +259,14 @@ def calc_mean_scores(
     gen_predictions_df = pd.DataFrame(gen_predictions, columns=["gen_predict"])
     real_predictions_df = pd.DataFrame(real_predictions, columns=["real_predict"])
     true_labels_df = pd.DataFrame(true_labels, columns=["labels"])
-
-    corr, _ = stats.pearsonr(gen_predictions_df.values.flatten(), real_predictions_df.values.flatten())
-
+    if covariate not in ["cataract", "disease_risk", "MH", "TSLN", "apoe4", "level"]:
+        corr, _ = stats.pearsonr(gen_predictions_df.values.flatten(), real_predictions_df.values.flatten())
+    elif covariate == "cataract":
+        corr, _ = stats.pearsonr(gen_predictions_df.values.flatten(), true_labels_df.values.flatten())
     predictions_df = pd.concat([gen_predictions_df, real_predictions_df, true_labels_df], axis=1)
-    if covariate in ["cataract", "disease_risk", "MH", "TSLN", "apoe4", "level"]:
-        return (accuracy_score, precision_score), (recall_score, f1_score), corr, predictions_df
+    # if covariate in ["cataract", "disease_risk", "MH", "TSLN", "apoe4", "level"]:
+    if covariate in ["disease_risk", "MH", "TSLN", "apoe4", "level"]:
+        return (accuracy_score, precision_score), (recall_score, f1_score), (gen_corr, balanced_accuracy_score), predictions_df
     else:
         return mse_score, mae_score, corr, predictions_df
 

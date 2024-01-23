@@ -125,7 +125,7 @@ def eval_loss_real_ms(
                         gen_c2 = sampler_sources["retinal"].sample_normalize(l.shape[0])
                         c_source = torch.tensor([1] * l.shape[0]).reshape(l.shape[0], -1)
                         all_c = torch.cat([gen_c2, l.cpu().detach(), c_source], dim=1).to(device)
-            batch_imgs = generate_images(Gen, z, l if source_gan == "single" else all_c, 
+            batch_imgs = generate_images(Gen, z, l[:, :Gen.c_dim] if source_gan == "single" else all_c, 
                                         truncation_psi, 
                                         noise_mode, translate, rotate).permute(0,3,1,2)
             batch_imgs = batch_imgs.div(255).cpu().detach()
@@ -204,14 +204,14 @@ def eval_loss_real_ms(
     for key, value in covariates["cov"].items():
         cov = value
         ### separate the covariates and regression models
-        if key in ["cataract", "disease_risk", "MH", "TSLN", "level", "apoe4"]:
+        if key in ["disease_risk", "MH", "TSLN", "level", "apoe4"]:
             metric0, metric1, corr, scores_df = calc_mean_scores(gen_imgs, real_imgs, 
                                                             cov_labels[:, cov].reshape(-1, 1),
                                                             regr_ml[key],
                                                             covariate=key,
                                                             batch_size=64)
-            accuracy, precision = metric0
-            recall, f1 = metric1
+            accuracy, precision = metric0[0], metric0[1]
+            recall, f1 = metric1[0], metric1[1]
             print(f"ACC: {accuracy}, PRE: {precision}, CORR: {corr}")
             print(f"REC: {recall}, F1: {f1}")
             scores_dict[key].append(np.array([accuracy, precision, recall, f1, corr])) ##, corr

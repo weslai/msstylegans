@@ -28,6 +28,140 @@ def parse_vec2(s: Union[str, Tuple[float, float]]) -> Tuple[float, float]:
         return (float(parts[0]), float(parts[1]))
     raise ValueError(f'cannot parse 2-vector {s}')
 # --------------------------------------------------------------------------------------
+def calculate_loss_retinaldata(
+    strata_idxs: list,
+    covariates: dict,
+    labels1: np.ndarray,
+    labels2: np.ndarray,
+    dataset1: torch.utils.data.Dataset,
+    dataset2: torch.utils.data.Dataset,
+    source_gan: str,
+    Gen,
+    regr_model0,
+    regr_model1,
+    regr_model2,
+    num_samples: int,
+    batch_size: int,
+    device: torch.device,
+    truncation_psi: float,
+    noise_mode: str,
+    translate: Tuple[float, float],
+    rotate: float
+):
+    c1_min, c1_max = covariates["c1_min"], covariates["c1_max"]
+    c3_min, c3_max = covariates["c3_min"], covariates["c3_max"]
+    strata_hist = covariates["strata_hist"]
+    scores_dict = {}
+    strata_predictions_dict = {}
+    regr_ml = {}
+    for key, value in covariates["cov"].items():
+        scores_dict[key] = [] ## mse, mae
+        strata_predictions_dict[key] = []
+        if value == 0:
+            regr_ml[key] = regr_model0
+        elif value == 1:
+            regr_ml[key] = regr_model1
+        elif value == 2:
+            regr_ml[key] = regr_model2
+
+    ## strata loop
+    for stra_c1 in strata_idxs:
+        if stra_c1 == 0:
+            cur_c1 = (c1_min, strata_hist["c1"][stra_c1])
+        elif stra_c1 == 1:
+            cur_c1 = (strata_hist["c1"][stra_c1-1], strata_hist["c1"][stra_c1])
+        else:
+            cur_c1 = (strata_hist["c1"][stra_c1-1], c1_max)
+        for stra_c3 in strata_idxs:
+            if stra_c3 == 0:
+                cur_c3 = (c3_min, strata_hist["c3"][stra_c3])
+            elif stra_c3 == 1:
+                cur_c3 = (strata_hist["c3"][stra_c3-1], strata_hist["c3"][stra_c3])
+            else:
+                cur_c3 = (strata_hist["c3"][stra_c3-1], c3_max)
+            real_imgs = []
+            gen_imgs = []
+            cov_labels = []
+            ## get samples from datasets (idxs)
+            idxs1 = np.where((labels1[:,0] >= cur_c1[0]) & (labels1[:,0] < cur_c1[1]) & \
+                            (labels1[:,2] >= cur_c3[0]) & (labels1[:,2] < cur_c3[1]))[0]
+            idxs2 = np.where((labels2[:,0] >= cur_c1[0]) & (labels2[:,0] < cur_c1[1]) & \
+                            (labels2[:,2] >= cur_c3[0]) & (labels2[:,2] < cur_c3[1]))[0]
+            num_real = len(idxs1) + len(idxs2)
+            if num_real >= 5:
+                ## get samples from GANs
+                for _ in range(num_samples // batch_size):
+                    z = torch.randn(batch_size, Gen.z_dim).to(device)
+                    ### 
+                    source1_c = []
+                    source2_c = []
+                    source1_img = []
+                    source2_img = []
+                    if len(idxs1) != 0:
+                        for idx in np.random.choice(idxs1, batch_size//2):
+                            source1_c.append(dataset1.get_norm_label(idx))
+                            source1_img.append(torch.tensor(dataset1[idx][0]))
+                    if len(idxs1) == 0:
+                        for idx in np.random.choice(idxs2, batch_size):
+                            source2_c.append(dataset2.get_norm_label(idx))
+                            source2_img.append(torch.tensor(dataset2[idx][0]))
+                    else:
+                        for idx in np.random.choice(idxs2, batch_size//2):
+                            source2_c.append(dataset2.get_norm_label(idx))
+                            source2_img.append(torch.tensor(dataset2[idx][0]))
+                    all_c = source1_c + source2_c ## normalized labels
+                    all_img = source1_img + source2_img
+                    l = torch.from_numpy(np.stack(all_c, axis=0)).to(device)
+                    imgs = torch.stack(all_img, dim=0).repeat([1,1,1,1]).to(device)
+                    if source_gan != "multi":
+                        if source_gan == "source1":
+                            gen_l = l[:, :2]
+                        elif source_gan == "source2":
+                            gen_l = l[:, [0, 2]]
+                    batch_imgs = generate_images(Gen, z, gen_l if source_gan != "multi" else l, 
+                                                truncation_psi, 
+                                                noise_mode, translate, rotate).permute(0,3,1,2)
+                    batch_imgs = batch_imgs.div(255).cpu().detach()
+                    imgs = imgs.div(255).cpu().detach()
+                    gen_imgs.append(batch_imgs)
+                    real_imgs.append(imgs)
+                    cov_labels.append(l) ## all covariates
+                gen_imgs = torch.cat(gen_imgs, dim=0).repeat([1,1,1,1]).to(device)## (batch_size, channel, pixel, pixel)
+                real_imgs = torch.cat(real_imgs, dim=0).repeat([1,1,1,1]).to(device)## (batch_size, channel, pixel, pixel)
+                cov_labels = torch.cat(cov_labels, dim=0).to(device)
+                ### within strata, calculate mae, mse
+                for key, value in covariates["cov"].items():
+                    cov = value
+                    ### separate the covariates and regression models
+                    # if key == "cataract":
+                    #     metric0, metric1, corr, scores_df = calc_mean_scores(gen_imgs, real_imgs, 
+                    #                                                     cov_labels[:, cov].reshape(-1, 1),
+                    #                                                     regr_ml[key],
+                    #                                                     key,
+                    #                                                     batch_size=64)
+                    #     accuracy, precision = metric0
+                    #     recall, f1 = metric1
+                    #     corr, balanced_acc = corr
+                    #     print(f"strata: {cur_c1}, {cur_c3}, ACC: {accuracy}, PRE: {precision}")
+                    #     print(f"strata: {cur_c1}, {cur_c3}, REC: {recall}, F1: {f1}, BAL_ACC: {balanced_acc}")
+                    #     scores_dict[key].append(np.array([num_real, cur_c1[0], cur_c1[1],
+                    #         cur_c3[0], cur_c3[1], accuracy, precision, recall, f1, balanced_acc])) ##, corr
+                    # else:
+                    mse_err, mae_err, corr, scores_df = calc_mean_scores(gen_imgs, real_imgs, 
+                                                                    cov_labels[:, cov].reshape(-1, 1),
+                                                                    regr_ml[key],
+                                                                    key,
+                                                                    batch_size=64)
+                    print(f"strata: {cur_c1}, {cur_c3}, MSE: {mse_err}, MAE: {mae_err}, CORR: {corr}")
+                    ### save the evaluation analysis to a json file
+                    scores_dict[key].append(np.array([num_real, cur_c1[0], cur_c1[1],
+                        cur_c3[0], cur_c3[1], mse_err, mae_err, corr])) ##mse, mae, corr
+                    strata_predictions_dict[key].append(scores_df)
+    for key, value in covariates["cov"].items():
+        scores_dict[key] = np.stack(scores_dict[key], axis=0)
+
+    return scores_dict, strata_predictions_dict
+# --------------------------------------------------------------------------------------
 def calculate_loss(
     data_name: str,
     strata_idxs: list,
@@ -74,11 +208,11 @@ def calculate_loss(
             cur_c1 = (strata_hist["c1"][stra_c1-1], strata_hist["c1"][stra_c1])
         else:
             cur_c1 = (strata_hist["c1"][stra_c1-1], c1_max)
-        for stra_c2 in strata_idxs if data_name != "retinal" else [0, 1]:
+        for stra_c2 in strata_idxs:
             if stra_c2 == 0:
-                cur_c2 = (c2_min, strata_hist["c2"][stra_c2]) if data_name != "retinal" else (0)
+                cur_c2 = (c2_min, strata_hist["c2"][stra_c2])
             elif stra_c2 == 1:
-                cur_c2 = (strata_hist["c2"][stra_c2-1], strata_hist["c2"][stra_c2]) if data_name != "retinal" else (1)
+                cur_c2 = (strata_hist["c2"][stra_c2-1], strata_hist["c2"][stra_c2])
             else:
                 cur_c2 = (strata_hist["c2"][stra_c2-1], c2_max)
             for stra_c3 in strata_idxs:
@@ -92,20 +226,12 @@ def calculate_loss(
                 gen_imgs = []
                 cov_labels = []
                 ## get samples from datasets (idxs)
-                if data_name == "retinal":
-                    idxs1 = np.where((labels1[:,0] >= cur_c1[0]) & (labels1[:,0] < cur_c1[1]) & \
-                                    (labels1[:,1] == cur_c2[0]) & \
-                                    (labels1[:,2] >= cur_c3[0]) & (labels1[:,2] < cur_c3[1]))[0]
-                    idxs2 = np.where((labels2[:,0] >= cur_c1[0]) & (labels2[:,0] < cur_c1[1]) & \
-                                    (labels2[:,1] == cur_c2[0]) & \
-                                    (labels2[:,2] >= cur_c3[0]) & (labels2[:,2] < cur_c3[1]))[0]
-                else:
-                    idxs1 = np.where((labels1[:,0] >= cur_c1[0]) & (labels1[:,0] < cur_c1[1]) & \
-                                    (labels1[:,1] >= cur_c2[0]) & (labels1[:,1] < cur_c2[1]) & \
-                                    (labels1[:,2] >= cur_c3[0]) & (labels1[:,2] < cur_c3[1]))[0]
-                    idxs2 = np.where((labels2[:,0] >= cur_c1[0]) & (labels2[:,0] < cur_c1[1]) & \
-                                    (labels2[:,1] >= cur_c2[0]) & (labels2[:,1] < cur_c2[1]) & \
-                                    (labels2[:,2] >= cur_c3[0]) & (labels2[:,2] < cur_c3[1]))[0]
+                idxs1 = np.where((labels1[:,0] >= cur_c1[0]) & (labels1[:,0] < cur_c1[1]) & \
+                                (labels1[:,1] >= cur_c2[0]) & (labels1[:,1] < cur_c2[1]) & \
+                                (labels1[:,2] >= cur_c3[0]) & (labels1[:,2] < cur_c3[1]))[0]
+                idxs2 = np.where((labels2[:,0] >= cur_c1[0]) & (labels2[:,0] < cur_c1[1]) & \
+                                (labels2[:,1] >= cur_c2[0]) & (labels2[:,1] < cur_c2[1]) & \
+                                (labels2[:,2] >= cur_c3[0]) & (labels2[:,2] < cur_c3[1]))[0]
                 num_real = len(idxs1) + len(idxs2)
                 if num_real >= 5:
                     ## get samples from GANs
@@ -168,26 +294,15 @@ def calculate_loss(
                     for key, value in covariates["cov"].items():
                         cov = value
                         ### separate the covariates and regression models
-                        if key == "cataract":
-                            metric0, metric1, corr, scores_df = calc_mean_scores(gen_imgs, real_imgs, 
+                        mse_err, mae_err, corr, scores_df = calc_mean_scores(gen_imgs, real_imgs, 
                                                                             cov_labels[:, cov].reshape(-1, 1),
                                                                             regr_ml[key],
+                                                                            key,
                                                                             batch_size=64)
-                            accuracy, precision = metric0
-                            recall, f1 = metric1
-                            print(f"strata: {cur_c1}, {cur_c2}, {cur_c3}, ACC: {accuracy}, PRE: {precision}, CORR: {corr}")
-                            print(f"strata: {cur_c1}, {cur_c2}, {cur_c3}, REC: {recall}, F1: {f1}")
-                            scores_dict[key].append(np.array([num_real, cur_c1[0], cur_c1[1], cur_c2[0], cur_c2[1],
-                                cur_c3[0], cur_c3[1], accuracy, precision, recall, f1, corr])) ##, corr
-                        else:
-                            mse_err, mae_err, corr, scores_df = calc_mean_scores(gen_imgs, real_imgs, 
-                                                                            cov_labels[:, cov].reshape(-1, 1),
-                                                                            regr_ml[key],
-                                                                            batch_size=64)
-                            print(f"strata: {cur_c1}, {cur_c2}, {cur_c3}, MSE: {mse_err}, MAE: {mae_err}, CORR: {corr}")
+                        print(f"strata: {cur_c1}, {cur_c2}, {cur_c3}, MSE: {mse_err}, MAE: {mae_err}, CORR: {corr}")
                         ### save the evaluation analysis to a json file
-                            scores_dict[key].append(np.array([num_real, cur_c1[0], cur_c1[1], cur_c2[0], cur_c2[1],
-                                cur_c3[0], cur_c3[1], mse_err, mae_err, corr])) ##mse, mae, corr
+                        scores_dict[key].append(np.array([num_real, cur_c1[0], cur_c1[1], cur_c2[0], cur_c2[1],
+                            cur_c3[0], cur_c3[1], mse_err, mae_err, corr])) ##mse, mae, corr
                         strata_predictions_dict[key].append(scores_df)
     for key, value in covariates["cov"].items():
         scores_dict[key] = np.stack(scores_dict[key], axis=0)
@@ -316,41 +431,68 @@ def run_stratified_mse(opts):
     regr_model2 = load_regression_model(regr_model2, which_model=which_model2,
                                         is_new_model=is_new_model2).to(device)
     ### within strata (c1, c2, c3), calculate MSE, MAE
-    scores, predictions_dict = calculate_loss(
-        data_name = dataset,
-        strata_idxs=strata_idxs,
-        covariates=covariates_info,
-        labels1=labels1,
-        labels2=labels2,
-        dataset1=ds1,
-        dataset2=ds2,
-        source_gan=source_gan,
-        Gen=Gen,
-        regr_model0=regr_model0,
-        regr_model1=regr_model1,
-        regr_model2=regr_model2,
-        num_samples=num_samples,
-        batch_size=batch_gen,
-        device=device,
-        truncation_psi=truncation_psi,
-        noise_mode=noise_mode,
-        translate=translate,
-        rotate=rotate
-    )
+    if dataset == "retinal":
+        scores, predictions_dict = calculate_loss_retinaldata(
+            strata_idxs=strata_idxs,
+            covariates=covariates_info,
+            labels1=labels1,
+            labels2=labels2,
+            dataset1=ds1,
+            dataset2=ds2,
+            source_gan=source_gan,
+            Gen=Gen,
+            regr_model0=regr_model0,
+            regr_model1=regr_model1,
+            regr_model2=regr_model2,
+            num_samples=num_samples,
+            batch_size=batch_gen,
+            device=device,
+            truncation_psi=truncation_psi,
+            noise_mode=noise_mode,
+            translate=translate,
+            rotate=rotate
+        )
+    else:
+        scores, predictions_dict = calculate_loss(
+            data_name = dataset,
+            strata_idxs=strata_idxs,
+            covariates=covariates_info,
+            labels1=labels1,
+            labels2=labels2,
+            dataset1=ds1,
+            dataset2=ds2,
+            source_gan=source_gan,
+            Gen=Gen,
+            regr_model0=regr_model0,
+            regr_model1=regr_model1,
+            regr_model2=regr_model2,
+            num_samples=num_samples,
+            batch_size=batch_gen,
+            device=device,
+            truncation_psi=truncation_psi,
+            noise_mode=noise_mode,
+            translate=translate,
+            rotate=rotate
+        )
     for key, value in covariates_info["cov"].items():
-        if key == "cataract":
+        if dataset != "retinal":
             scores_df = pd.DataFrame(scores[key], columns=["num_samples",
-                                                "c1_min", "c1_max", 
-                                                "c2_min", "c2_max", 
-                                                "c3_min", "c3_max", 
-                                                "accuracy", "precision", "recall", 
-                                                "f1", "corr"])
+                                    "c1_min", "c1_max", 
+                                    "c2_min", "c2_max", 
+                                    "c3_min", "c3_max", 
+                                    "mse", "mae", "corr"])
         else:
+            # if key == "cataract":
+            #     scores_df = pd.DataFrame(scores[key], columns=["num_samples",
+            #                         "c1_min", "c1_max", 
+            #                         "c3_min", "c3_max", 
+            #                         "accuracy", "precision", "recall", 
+            #                         "f1", "balanced_acc"])
+            # else:
             scores_df = pd.DataFrame(scores[key], columns=["num_samples",
-                                                "c1_min", "c1_max", 
-                                                "c2_min", "c2_max", 
-                                                "c3_min", "c3_max", 
-                                                "mse", "mae", "corr"])
+                                "c1_min", "c1_max", 
+                                "c3_min", "c3_max", 
+                                "mse", "mae", "corr"])
         scores_df.to_csv(os.path.join(outdir, f"stratified_loss_{key}.csv"), index=False)
         for i in range(len(predictions_dict[key])):
             predictions_dict[key][i].to_csv(os.path.join(outdir, f"stratified_predictions_{key}_stra{i}.csv"),

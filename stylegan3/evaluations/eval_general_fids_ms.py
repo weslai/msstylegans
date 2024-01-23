@@ -10,7 +10,7 @@ import dnnlib
 ### -------------------
 ### --- Own ---
 ### -------------------
-from eval_utils import calc_fid_score
+from eval_utils import calc_fid_score, calc_kid_score
 from utils import load_generator, generate_images
 from latent_mle_real_ms import SourceSampling
 from eval_general_mse_real_ms import load_dataset
@@ -75,16 +75,16 @@ def run_general_fid(opts):
         sampler_source1 = SourceSampling("retinal", label_path=os.path.join(data_path1, "trainset"))
         sampler_source1.get_graph()
         sampler_source1.get_causal_model()
-        sampler_source2 = SourceSampling("eyepacs", label_path=os.path.join(data_path2, "trainset"))
+        sampler_source2 = SourceSampling("rfmid", label_path=os.path.join(data_path2, "trainset"))
         sampler_source2.get_graph()
         sampler_source2.get_causal_model()
         sampler_sources["retinal"] = sampler_source1
-        sampler_sources["eyepacs"] = sampler_source2
+        sampler_sources["rfmid"] = sampler_source2
         if data_path3 is not None:
-            sampler_source3 = SourceSampling("rfmid", label_path=os.path.join(data_path3, "trainset"))
+            sampler_source3 = SourceSampling("eyepacs", label_path=os.path.join(data_path3, "trainset"))
             sampler_source3.get_graph()
             sampler_source3.get_causal_model()
-            sampler_sources["rfmid"] = sampler_source3
+            sampler_sources["eyepacs"] = sampler_source3
     else:
         if source_gan != "single":
             raise ValueError(f"source gan {source_gan} not found")
@@ -190,11 +190,11 @@ def run_general_fid(opts):
                     gen_c2 = sampler_sources["retinal"].sample_normalize(l.shape[0])
                     c_source = torch.tensor([1] * l.shape[0]).reshape(l.shape[0], -1)
                     all_c = torch.cat([gen_c2, l.cpu().detach(), c_source], dim=1).to(device)
-        batch_imgs = generate_images(Gen, z, l if source_gan == "single" else all_c, 
+        batch_imgs = generate_images(Gen, z, l[:, :Gen.c_dim] if source_gan == "single" else all_c, 
                                     truncation_psi, 
                                     noise_mode, translate, rotate).permute(0,3,1,2)
         gen_imgs.append(batch_imgs)
-    if dataset != "retinal":
+    if dataset not in ["retinal", "rfmid", "eyepacs"]:
         real_imgs = torch.cat(real_imgs, dim=0).repeat([1, 3, 1, 1]).to(device) ## (batch_size, channel (3), pixel, pixel)
         gen_imgs = torch.cat(gen_imgs, dim=0).repeat([1,3,1,1]).to(device) ## (batch_size, channel (3), pixel, pixel)
     else:
@@ -203,10 +203,17 @@ def run_general_fid(opts):
     print(f"Real images: {real_imgs.shape}")
     print(f"Generated images: {gen_imgs.shape}")
     ### calculate FID
-    fid_score = calc_fid_score(real_imgs, gen_imgs, batch_size=64).cpu().detach().numpy()
-    print(f"FID: {fid_score} for {num_samples} samples")
+    # fid_score = calc_fid_score(real_imgs, gen_imgs, batch_size=64).cpu().detach().numpy()
+    # print(f"FID: {fid_score} for {num_samples} samples")
+    kids = calc_kid_score(real_imgs, gen_imgs, batch_size=64)
+    kid_mean = kids[0].cpu().detach().numpy()
+    kid_std = kids[1].cpu().detach().numpy()
+    print(f"KID: {kid_mean} and {kid_std} for {num_samples} samples")
     ### save the evaluation analysis to a json file
-    result = dict(fid=fid_score, num_samples=num_samples,
+    # result = dict(fid=fid_score, 
+    result = dict(kid_mean = kid_mean,
+                  kid_std = kid_std,
+                  num_samples=num_samples,
                   dataset=dataset,
                   network=metric_jsonl,
                   data_path1=data_path1,

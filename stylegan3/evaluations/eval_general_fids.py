@@ -9,7 +9,7 @@ sys.path.append("/dhc/home/wei-cheng.lai/projects/msstylegans")
 ### -------------------
 ### --- Own ---
 ### -------------------
-from eval_utils import calc_fid_score
+from eval_utils import calc_fid_score, calc_kid_score
 from utils import load_generator, generate_images
 from eval_dataset import ConcatDataset
 from eval_dataset import MorphoMNISTDataset_causal, MorphoMNISTDataset_causal_single
@@ -261,17 +261,25 @@ def run_general_fid(
             gen_imgs.append(batch_imgs)
     if dataset != "retinal":
         real_imgs = torch.cat(real_imgs, dim=0).repeat([1, 3, 1, 1]).to(device) ## (batch_size, channel (3), pixel, pixel)
-        gen_imgs = torch.cat(gen_imgs, dim=0).repeat([1,3,1,1]).to(device) ## (batch_size, channel (3), pixel, pixel)
+        gen_imgs = torch.cat(gen_imgs, dim=0).repeat([1, 3, 1, 1]).to(device) ## (batch_size, channel (3), pixel, pixel)
     else:
         real_imgs = torch.cat(real_imgs, dim=0).to(device)
         gen_imgs = torch.cat(gen_imgs, dim=0).to(device)
     print(f"Real images: {real_imgs.shape}")
     print(f"Generated images: {gen_imgs.shape}")
     ### calculate FID
-    fid_score = calc_fid_score(real_imgs, gen_imgs, batch_size=64).cpu().detach().numpy()
-    print(f"FID: {fid_score} for {num_samples} samples")
+    # fid_score = calc_fid_score(real_imgs, gen_imgs, batch_size=64).cpu().detach().numpy()
+    # print(f"FID: {fid_score} for {num_samples} samples")
+    kids = calc_kid_score(real_imgs, gen_imgs, batch_size=64)
+    kid_mean = kids[0].cpu().detach().numpy()
+    kid_std = kids[1].cpu().detach().numpy()
+    print(f"KID: {kid_mean} and {kid_std} for {num_samples} samples")
     ### save the evaluation analysis to a json file
-    result = dict(fid=fid_score, num_samples=num_samples,
+    # result = dict(fid=fid_score, 
+    result = dict(
+                  kid_mean=kid_mean,
+                  kid_std=kid_std,
+                  num_samples=num_samples,
                   dataset=dataset,
                   network=metric_jsonl,
                   data_path1=data_path1,
