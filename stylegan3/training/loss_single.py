@@ -81,13 +81,12 @@ class StyleGAN2Loss(Loss):
                     gen_cmap_pred = gen_outputs_d[:, [1, -1]]
                     gen_digit_pred = gen_outputs_d[:, 2]
                 elif gen_outputs_d.shape[1] == 4: ## mri case
+                    print("it's mri image")
                     gen_img_pred = gen_outputs_d[:, 0]
                     gen_cmap_pred = gen_outputs_d[:, 1:]
                     gen_digit_pred = None
                 else: ## shape == 1
-                    gen_img_pred = gen_outputs_d
-                    gen_cmap_pred = None
-                    gen_digit_pred = None
+                    raise NotImplementedError
                 training_stats.report('Loss/scores/fake', gen_img_pred)
                 training_stats.report('Loss/signs/fake', gen_img_pred.sign())
                 # training_stats.report('Loss/scores/fake', gen_logits)

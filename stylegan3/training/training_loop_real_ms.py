@@ -106,6 +106,8 @@ def training_loop(
     D_opt_kwargs            = {},       # Options for discriminator optimizer.
     augment_kwargs          = None,     # Options for augmentation pipeline. None = disable.
     loss_kwargs             = {},       # Options for loss function.
+    loss_lambda             = 0.1,    # Weight of the loss function.
+    lambda_step             = 1000,     # Step size for lambda update.
     metrics                 = [],       # Metrics to evaluate during training.
     validation_metrics      = [],       # Metrics to evaluate after training.
     random_seed             = 0,        # Global random seed.
@@ -351,8 +353,15 @@ def training_loop(
     batch_idx = 0
     if progress_fn is not None:
         progress_fn(0, total_kimg)
+    lambda_opts = np.exp(-np.arange(2, 11, 1))[::-1]
     if resume_pkl is not None:
-        cur_lambda = 0.5
+        lambda_img = cur_nimg / 1e3
+        if lambda_img // lambda_step < 10 and lambda_img > lambda_step:
+            cur_lambda = min(loss_lambda, lambda_opts[int(lambda_img // lambda_step) - 1])
+        elif lambda_img // lambda_step >= 10: 
+            cur_lambda = loss_lambda
+        else:
+            cur_lambda = 0
     else:
         cur_lambda = 0
     cur_metric = np.inf
@@ -482,32 +491,6 @@ def training_loop(
                         param.grad = grad.reshape(param.shape)
                 phase.opt.step()
 
-            # ## source 2
-            # # Accumulate gradients.
-            # phase.opt.zero_grad(set_to_none=True)
-            # phase.module.requires_grad_(True)
-            # for real_img, real_c, gen_z, gen_c in zip(phase_real_img2, phase_real_c2, phase_gen_z, phase_gen_c):
-            #     loss.accumulate_gradients(phase=phase.name, real_img=real_img, real_c=real_c, 
-            #                             gen_z=gen_z[batch_gpu:], gen_c=gen_c[batch_gpu:], gain=phase.interval, cur_nimg=cur_nimg,
-            #                             lambda_=cur_lambda)
-            # phase.module.requires_grad_(False)
-
-            # # Update weights.
-            # with torch.autograd.profiler.record_function(phase.name + '_opt'):
-            #     params = [param for param in phase.module.parameters() if param.grad is not None]
-            #     # if phase.name in ["Dmain", "Dreg", "Dboth"]:
-            #     #     ### TODO update certain weights
-            #     #     pass
-            #     if len(params) > 0:
-            #         flat = torch.cat([param.grad.flatten() for param in params])
-            #         if num_gpus > 1:
-            #             torch.distributed.all_reduce(flat)
-            #             flat /= num_gpus
-            #         misc.nan_to_num(flat, nan=0, posinf=1e5, neginf=-1e5, out=flat)
-            #         grads = flat.split([param.numel() for param in params])
-            #         for param, grad in zip(params, grads):
-            #             param.grad = grad.reshape(param.shape)
-            #     phase.opt.step()
             # Phase done.
             if phase.end_event is not None:
                 phase.end_event.record(torch.cuda.current_stream(device))
@@ -651,7 +634,14 @@ def training_loop(
         tick_start_time = time.time()
         maintenance_time = tick_start_time - tick_end_time
         wandb.log({'lambda (mse)': cur_lambda}, step=cur_nimg)
-        cur_lambda = min(1, cur_lambda + 1 / 50)
+        ## lambda update
+        lambda_img = cur_nimg / 1e3
+        if lambda_img // lambda_step < 10 and lambda_img > lambda_step:
+            cur_lambda = min(loss_lambda, lambda_opts[int(lambda_img // lambda_step) - 1])
+        elif lambda_img // lambda_step >= 10: 
+            cur_lambda = loss_lambda
+        else:
+            cur_lambda = 0
         ## early stopping
         if early_stop > 5:
             done = True

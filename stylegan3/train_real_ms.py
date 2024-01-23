@@ -216,6 +216,8 @@ def parse_comma_separated_list(s):
 @click.option('--resume_kimg',  help='Resume from given kilo-images', metavar='INT',           type=int, default=0, show_default=True)
 @click.option('--freezed',      help='Freeze first layers of D', metavar='INT',                 type=click.IntRange(min=0), default=0, show_default=True)
 @click.option('--data_scenario', help='data scenario', metavar='STR',                           type=click.Choice(["high", "half"]), default='high', show_default=True)
+@click.option('--lambda_',      help='lambda for the loss', metavar='FLOAT',                    type=click.FloatRange(min=0), default=0.1, show_default=True)
+@click.option('--lambda_step',  help='number of steps to update lambda', metavar='FLOAT',       type=click.IntRange(min=1), default=1000, show_default=True)
 
 # Misc hyperparameters.
 @click.option('--p',            help='Probability for --aug=fixed', metavar='FLOAT',            type=click.FloatRange(min=0, max=1), default=0.2, show_default=True)
@@ -319,6 +321,8 @@ def main(**kwargs):
     c.G_kwargs.mapping_kwargs.num_layers = (8 if opts.cfg == 'stylegan2' else 2) if opts.map_depth is None else opts.map_depth
     c.D_kwargs.block_kwargs.freeze_layers = opts.freezed
     c.D_kwargs.epilogue_kwargs.mbstd_group_size = opts.mbstd_group
+    c.loss_lambda = opts.lambda_
+    c.lambda_step = opts.lambda_step
     c.loss_kwargs.r1_gamma = opts.gamma
     c.G_opt_kwargs.lr = (0.002 if opts.cfg == 'stylegan2' else 0.0025) if opts.glr is None else opts.glr
     c.D_opt_kwargs.lr = opts.dlr

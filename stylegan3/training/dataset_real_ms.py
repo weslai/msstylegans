@@ -492,7 +492,7 @@ class AdniMRIDataset2D(ImageFolderDataset):
         self.excluded_files = None
         self.data_name = data_name
         self.which_source = None
-        self.log_volumes = get_settings(data_name, self.which_source)
+        self.log_volumes = get_settings(data_name)
         super().__init__(data_name, self.mode, path, resolution, **super_kwargs)
     
     def _get_mu_std(self, labels=None):

@@ -100,6 +100,8 @@ def training_loop(
     D_opt_kwargs            = {},       # Options for discriminator optimizer.
     augment_kwargs          = None,     # Options for augmentation pipeline. None = disable.
     loss_kwargs             = {},       # Options for loss function.
+    loss_lambda             = 0.1,    # Weight of the loss function.
+    lambda_step             = 1000,     # Step size for lambda update.
     metrics                 = [],       # Metrics to evaluate during training.
     validation_metrics      = [],       # Metrics to evaluate after training.
     random_seed             = 0,        # Global random seed.
@@ -279,8 +281,15 @@ def training_loop(
     batch_idx = 0
     if progress_fn is not None:
         progress_fn(0, total_kimg)
+    lambda_opts = np.exp(-np.arange(2, 11, 1))[::-1]
     if resume_pkl is not None:
-        cur_lambda = 0.5
+        lambda_img = cur_nimg / 1e3
+        if lambda_img // lambda_step < 10 and lambda_img > lambda_step:
+            cur_lambda = min(loss_lambda, lambda_opts[int(lambda_img // lambda_step) - 1])
+        elif lambda_img // lambda_step >= 10: 
+            cur_lambda = loss_lambda
+        else:
+            cur_lambda = 0
     else:
         cur_lambda = 0
     cur_metric = np.inf
@@ -464,7 +473,14 @@ def training_loop(
         tick_start_time = time.time()
         maintenance_time = tick_start_time - tick_end_time
         wandb.log({'lambda (mse)': cur_lambda}, step=cur_nimg)
-        cur_lambda = min(1, cur_lambda + 1 / 50)
+        ## lambda update
+        lambda_img = cur_nimg / 1e3
+        if lambda_img // lambda_step < 10 and lambda_img > lambda_step:
+            cur_lambda = min(loss_lambda, lambda_opts[int(lambda_img // lambda_step) - 1])
+        elif lambda_img // lambda_step >= 10:
+            cur_lambda = loss_lambda
+        else:
+            cur_lambda = 0
         ## early stopping
         if early_stop > 5:
             done = True

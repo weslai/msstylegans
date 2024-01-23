@@ -77,7 +77,6 @@ class StyleGAN2Loss(Loss):
                 gen_outputs_d = self.run_D(gen_img, gen_c, blur_sigma=blur_sigma)
                 gen_outputs_d = gen_outputs_d.float()
                 if real_img.shape[1] == 3: ## Retinal images
-                    print("it is retinal")
                     gen_img_pred = gen_outputs_d[:, 0]
                     gen_cmap_pred = gen_outputs_d[:, [1, 3]]
                     gen_discease_pred = gen_outputs_d[:, [2] + list(range(4, gen_outputs_d.shape[1]-3))]
