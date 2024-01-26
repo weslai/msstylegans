@@ -33,6 +33,7 @@ def run_general_fid(opts):
     dataset = opts.dataset 
     network_pkl = opts.network_pkl
     metric_jsonl = opts.metric_jsonl
+    metric = opts.metric
     data_path1 = opts.data_path1
     data_path2 = opts.data_path2
     data_path3 = opts.data_path3
@@ -202,30 +203,42 @@ def run_general_fid(opts):
         gen_imgs = torch.cat(gen_imgs, dim=0).to(device)
     print(f"Real images: {real_imgs.shape}")
     print(f"Generated images: {gen_imgs.shape}")
-    ### calculate FID
-    # fid_score = calc_fid_score(real_imgs, gen_imgs, batch_size=64).cpu().detach().numpy()
-    # print(f"FID: {fid_score} for {num_samples} samples")
-    kids = calc_kid_score(real_imgs, gen_imgs, batch_size=64)
-    kid_mean = kids[0].cpu().detach().numpy()
-    kid_std = kids[1].cpu().detach().numpy()
-    print(f"KID: {kid_mean} and {kid_std} for {num_samples} samples")
-    ### save the evaluation analysis to a json file
-    # result = dict(fid=fid_score, 
-    result = dict(kid_mean = kid_mean,
-                  kid_std = kid_std,
-                  num_samples=num_samples,
-                  dataset=dataset,
-                  network=metric_jsonl,
-                  data_path1=data_path1,
-                  data_path2=data_path2 if data_path2 is not None else "None",
-                  data_path3 = data_path3 if data_path3 is not None else "None"
-                  )
+    ### calculate evaluation metrics
+    if metric == "fid":
+        fid_score = calc_fid_score(real_imgs, gen_imgs, batch_size=64).cpu().detach().numpy()
+        print(f"FID: {fid_score} for {num_samples} samples")
+        ### save the evaluation analysis to a json file
+        result = dict(
+            fid=fid_score,
+            num_samples=num_samples,
+            dataset=dataset,
+            network=metric_jsonl,
+            data_path1=data_path1,
+            data_path2=data_path2 if data_path2 is not None else "None",
+            data_path3 = data_path3 if data_path3 is not None else "None"
+        )
+    elif metric == "kid":
+        kids = calc_kid_score(real_imgs, gen_imgs, batch_size=64)
+        kid_mean = kids[0].cpu().detach().numpy()
+        kid_std = kids[1].cpu().detach().numpy()
+        print(f"KID: {kid_mean} and {kid_std} for {num_samples} samples")
+        ### save the evaluation analysis to a json file
+        result = dict(kid_mean = kid_mean,
+            kid_std = kid_std,
+            num_samples=num_samples,
+            dataset=dataset,
+            network=metric_jsonl,
+            data_path1=data_path1,
+            data_path2=data_path2 if data_path2 is not None else "None",
+            data_path3 = data_path3 if data_path3 is not None else "None"
+        )
     result_df = pd.DataFrame.from_dict(result, orient="index").T
     result_df.to_csv(os.path.join(outdir, f"general_fid_{source_gan}_{dataset}.csv"), index=False)
 # --------------------------------------------------------------------------------------
 @click.command()
 @click.option('--network_specific', 'network_pkl', help='Network pickle filepath', default=None, required=False)
 @click.option('--network', 'metric_jsonl', help='Metric jsonl file for one training', default=None, required=False)
+@click.option('--metric', 'metric', type=click.Choice(['fid', 'kid']), default='fid', show_default=True)
 @click.option('--dataset', 'dataset', type=click.Choice(['ukb', 'retinal', 'adni', 'nacc', 'eyepacs', 'rfmid',
                                                          None]), default=None, show_default=True)
 @click.option('--data-path1', 'data_path1', type=str, help='Path to the data source 1', required=True)
@@ -251,11 +264,14 @@ def main(**kwargs):
     config_dict = {
         "gen_specific": opts.network_pkl,
         "gen": opts.metric_jsonl,
+        "metric": opts.metric,
         "dataset": opts.dataset, 
         "data_path1": opts.data_path1, "data_path2": opts.data_path2,
         "data_path3": opts.data_path3, "source_gan": opts.source_gan,
-        "num_samples": opts.num_samples, "out_dir": opts.outdir}
-    with open(os.path.join(opts.outdir, "strata_mse_config.json"), "w") as f:
+        "num_samples": opts.num_samples, 
+        "truncation_psi": opts.truncation_psi, "noise_mode": opts.noise_mode,
+        "out_dir": opts.outdir}
+    with open(os.path.join(opts.outdir, "general_fid_config.json"), "w") as f:
         json.dump(config_dict, f)
     
     run_general_fid(opts)

@@ -33,16 +33,15 @@ def parse_vec2(s: Union[str, Tuple[float, float]]) -> Tuple[float, float]:
 @click.command()
 @click.option('--network_specific', 'network_pkl', help='Network pickle filepath', default=None, required=False)
 @click.option('--network', 'metric_jsonl', help='Metric jsonl file for one training', default=None, required=False)
-@click.option('--dataset', 'dataset', type=click.Choice(['mnist-thickness-intensity', 'mnist-thickness-slant',
-                                                         'mnist-thickness-intensity-slant', 'ukb', 
-                                                         'retinal', None]),
+@click.option('--metric', 'metric', type=click.Choice(['fid', 'kid']), default='fid', show_default=True)
+@click.option('--dataset', 'dataset', type=click.Choice(['mnist-thickness-intensity-slant', 'ukb', 'retinal', None]), 
               default=None, show_default=True)
 @click.option('--data-path1', 'data_path1', type=str, help='Path to the data source 1', required=True)
 @click.option('--data-path2', 'data_path2', type=str, help='Path to the data source 2', default=None, required=False)
 @click.option('--source-gan', 'source_gan', type=click.Choice(["single", "multi"]), help='which source of GAN', default="multi", required=True)
 @click.option('--num-samples', 'num_samples', type=int, help='Number of samples to generate', default=10000, show_default=True)
 @click.option('--trunc', 'truncation_psi', type=float, help='Truncation psi', default=1, show_default=True)
-@click.option('--noise-mode', 'noise_mode', help='Noise mode', type=click.Choice(['const', 'random', 'none']), 
+@click.option('--noise-mode', 'noise_mode', help='Noise mode', type=click.Choice(['const', 'random', 'none']),
               default='const', show_default=True)
 @click.option('--translate', help='Translate XY-coordinate (e.g. \'0.3,1\')', type=parse_vec2, 
               default='0,0', show_default=True, metavar='VEC2')
@@ -54,6 +53,7 @@ def parse_vec2(s: Union[str, Tuple[float, float]]) -> Tuple[float, float]:
 def run_general_fid(
     network_pkl: str,
     metric_jsonl: str,
+    metric: str,
     dataset: str,
     data_path1: str,
     data_path2: str,
@@ -73,9 +73,11 @@ def run_general_fid(
         assert data_path2 is not None
     os.makedirs(outdir, exist_ok=True)
     config_dict = {
-        "gen_specific": network_pkl, "gen": metric_jsonl, "dataset": dataset, 
-        "data_path1": data_path1, "data_path2": data_path2,
-        "source_gan": source_gan, "num_samples": num_samples, "out_dir": outdir}
+        "gen_specific": network_pkl, "gen": metric_jsonl, "metric": metric, 
+        "dataset": dataset, "data_path1": data_path1, "data_path2": data_path2,
+        "source_gan": source_gan, "num_samples": num_samples,
+        "truncation_psi": truncation_psi, "noise_mode": noise_mode,
+        "out_dir": outdir}
     with open(os.path.join(outdir, "generalfid_config.json"), "w") as f:
         json.dump(config_dict, f)
     if dataset == "mnist-thickness-intensity-slant":
@@ -98,7 +100,6 @@ def run_general_fid(
             labels = ds1._load_raw_labels()
             labels2 = ds2._load_raw_labels()
         elif data_path2 is not None and source_gan == "single":
-            # dataset2 = "mnist-thickness-slant" if dataset == "mnist-thickness-intensity" else "mnist-thickness-intensity"
             dataset2 = "mnist-thickness-intensity-slant"
             ## seed is as the common convariate (c1)
             ds1 = MorphoMNISTDataset_causal_single(data_name=dataset,
@@ -268,23 +269,33 @@ def run_general_fid(
     print(f"Real images: {real_imgs.shape}")
     print(f"Generated images: {gen_imgs.shape}")
     ### calculate FID
-    # fid_score = calc_fid_score(real_imgs, gen_imgs, batch_size=64).cpu().detach().numpy()
-    # print(f"FID: {fid_score} for {num_samples} samples")
-    kids = calc_kid_score(real_imgs, gen_imgs, batch_size=64)
-    kid_mean = kids[0].cpu().detach().numpy()
-    kid_std = kids[1].cpu().detach().numpy()
-    print(f"KID: {kid_mean} and {kid_std} for {num_samples} samples")
-    ### save the evaluation analysis to a json file
-    # result = dict(fid=fid_score, 
-    result = dict(
-                  kid_mean=kid_mean,
-                  kid_std=kid_std,
-                  num_samples=num_samples,
-                  dataset=dataset,
-                  network=metric_jsonl,
-                  data_path1=data_path1,
-                  data_path2=data_path2 if data_path2 is not None else "None"
-                  )
+    if metric == "fid":
+        fid_score = calc_fid_score(real_imgs, gen_imgs, batch_size=64).cpu().detach().numpy()
+        print(f"FID: {fid_score} for {num_samples} samples")
+        ### save the evaluation analysis to a json file
+        result = dict(fid=fid_score, 
+                num_samples=num_samples,
+                dataset=dataset,
+                network=metric_jsonl,
+                data_path1=data_path1,
+                data_path2=data_path2 if data_path2 is not None else "None"
+        )
+    elif metric == "kid":
+        kids = calc_kid_score(real_imgs, gen_imgs, batch_size=64)
+        kid_mean = kids[0].cpu().detach().numpy()
+        kid_std = kids[1].cpu().detach().numpy()
+        print(f"KID: {kid_mean} and {kid_std} for {num_samples} samples")
+        ### save the evaluation analysis to a json file
+        result = dict(
+            kid_mean=kid_mean,
+            kid_std=kid_std,
+            num_samples=num_samples,
+            dataset=dataset,
+            network=metric_jsonl,
+            data_path1=data_path1,
+            data_path2=data_path2 if data_path2 is not None else "None"
+        )
+
     result_df = pd.DataFrame.from_dict(result, orient="index").T
     if data_path2 is not None and source_gan == "multi":
         result_df.to_csv(os.path.join(outdir, "ms_general_fid.csv"), index=False)
