@@ -270,7 +270,7 @@ def run_general_mse(opts):
         sampler_sources=sampler_sources
     )
     for key, value in covariates_info["cov"].items():
-        if key in ["cataract", "apoe4", "level", "disease_risk", "MH", "TSLN"]:
+        if key in ["apoe4", "level", "disease_risk", "MH", "TSLN"]:
             scores_df = pd.DataFrame(scores[key], columns=["accuracy", "precision", "recall", 
                                                 "f1", "corr"])
         else:
