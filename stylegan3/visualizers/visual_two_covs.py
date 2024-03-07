@@ -54,7 +54,10 @@ def plot_two_covs_images(
     sns.set_style("ticks")
     sns.set_context("paper")
     sns.set_palette("colorblind")
-    fig = plt.figure(figsize=(ncols*1, nrows*1.6))
+    if c2_name == "cataract":
+        fig = plt.figure(figsize=(ncols - 1.6, nrows - 0.4))
+    else:
+        fig = plt.figure(figsize=(ncols*1, nrows*1.6))
     gs = gridspec.GridSpec(nrows, ncols,
         wspace=0.0, hspace=0.0
     )
@@ -68,7 +71,12 @@ def plot_two_covs_images(
                 img = images[i * ncols + j][:, :, 0]
                 ax.imshow(img, cmap="gray", vmin=0, vmax=255)
             if j == 0:
-                if abs(c2[i][0]) > 10000:
+                if c2_name == "cataract":
+                    if i == 0:
+                        ax.set_ylabel("No CAT.", fontsize=6, rotation=90)
+                    else:
+                        ax.set_ylabel("CAT.", fontsize=6, rotation=90)
+                elif abs(c2[i][0]) > 10000:
                     str_c2 = c2[i][0] / 1000 
                     str_c2 = f"{str_c2:.1f}k"
                     ax.set_ylabel(str_c2, fontsize=12)
@@ -80,14 +88,16 @@ def plot_two_covs_images(
                     str_c3 = f"{str_c3:.1f}k"
                     ax.set_xlabel(str_c3, fontsize=12)
                 else:
-                    ax.set_xlabel("{:.1f}".format(c3[j][0]), fontsize=12)
+                    ax.set_xlabel("{:.1f}".format(c3[j][0]), fontsize=6)
             ax.set_xticklabels([])
             ax.set_yticklabels([])
             ax.set_xticks([])
             ax.set_yticks([])
-    # fig.suptitle("Generated Images", fontsize=16)
-    fig.supxlabel(f"{c3_name}", fontsize=16)
-    fig.supylabel(f"{c2_name}", fontsize=16)
+    # fig.supxlabel(f"{c3_name}", fontsize=12, x = 0.55)
+    fig.supxlabel(f"{c3_name}", fontsize=8, x = 0.55, y = 0.1)
+    if c2_name != "cataract":
+        fig.supylabel(f"{c2_name}", fontsize=16)
+    plt.tight_layout()
     if save_path is not None:
         plt.savefig(save_path)
         save_path = save_path.replace(".png", ".pdf")
@@ -110,7 +120,7 @@ def plot_two_covs_images_dualsources(
     sns.set_style("ticks")
     sns.set_context("paper")
     sns.set_palette("colorblind")
-    fig = plt.figure(figsize=(ncols*1.5, nrows*1.2))
+    fig = plt.figure(figsize=(ncols*1, nrows*1))
     gs = gridspec.GridSpec(nrows, ncols,
         wspace=0.0, hspace=0.0
     )

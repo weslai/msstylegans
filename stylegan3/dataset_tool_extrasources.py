@@ -419,6 +419,61 @@ def open_adni(
                 break
     return max_idx, iterate_images()
 #----------------------------------------------------------------------------
+def open_oasis(
+    annotation_path: str,
+    max_images: Optional[int],
+    normalize_img: bool = True,
+    covs: list = [
+        "MR ID",
+        "anat",
+        "Age",
+        "left hippocampus",
+        "right hippocampus"
+    ]
+):
+    import nibabel as nib
+    ## load data 
+    df = pd.read_csv(annotation_path)
+    session_covs = ["MR ID", "Age", "Scanner"]
+    df_ext = df[session_covs].dropna()
+    df_ext = df_ext[df_ext["Scanner"] == "3.0T"]
+
+    synth_seg_df = pd.read_csv("/dhc/groups/fglippert/Oasis3/synthseg_vols.csv")
+    synth_seg_df["filepath_MNIlin"] = "/dhc/groups/fglippert/Oasis3/mri/" + synth_seg_df["MR ID"] + "/" + synth_seg_df["anat"] + "/NIFTI/T1toMNIlin.nii.gz"
+    for i in range(len(df_ext)):
+        idx = synth_seg_df.loc[synth_seg_df["MR ID"] == df_ext.iloc[i]["MR ID"]].index
+        synth_seg_df.loc[idx, "Age"] = df_ext.iloc[i]["Age"]
+    synth_seg_df = synth_seg_df.dropna()
+    input_imgs = list(synth_seg_df["filepath_MNIlin"])
+    max_idx = maybe_min(len(input_imgs), max_images)
+
+    def iterate_images():
+        for idx, fname in enumerate(input_imgs):
+            ## load image
+            img = nib.load(fname)
+            newimg = img.get_fdata()
+            ## middle slice
+            newimg = np.take(
+                newimg,
+                newimg.shape[1] // 2,
+                1
+            )
+            ## rotate images
+            newimg = np.rot90(newimg, k=1, axes=(0, 1))
+            if normalize_img:
+                newimg = (newimg - newimg.min()) / (newimg.max() - newimg.min())
+                newimg = (255 * newimg).astype(np.uint8)
+                # img = (255 * img).round().astype(np.uint8)
+            items = dict(
+                (key, value)
+                    for key, value in synth_seg_df.loc[synth_seg_df["filepath_MNIlin"] == fname][covs[1:]].to_dict().items()
+            )
+            yield dict(img=newimg, label=items, org_img=img)
+            if idx >= max_idx - 1:
+                break
+    return max_idx, iterate_images()
+
+#----------------------------------------------------------------------------
 
 def make_transform(
     transform: Optional[str],
@@ -522,6 +577,15 @@ def open_dataset(source, *,
                     "Age", "CDGLOBAL", "MMSE", "Sex", "Apoe4"
                 ]
             )
+        ## oasis3
+        elif source.rstrip('/').endswith("Oasis3"):
+            return open_oasis(
+                annotation_path=annotation_path,
+                max_images=max_images,
+                covs=["MR ID", "anat", 
+                    "Age", "left hippocampus", "right hippocampus"]
+            )
+
     elif os.path.isfile(source):
         if file_ext(source) == 'zip':
             return open_image_zip(source, max_images=max_images)
@@ -669,7 +733,7 @@ def convert_dataset(
     labels = []
     for idx, image in tqdm(enumerate(input_iter), total=num_files):
         idx_str = f'{idx:08d}'
-        if dataset_name in ["adni", "ukb", "nacc"]:
+        if dataset_name in ["adni", "ukb", "nacc", "oasis3"]:
             archive_fname = f'{idx_str[:5]}/img{idx_str}.nii.gz'
         elif dataset_name in ["retinal", "eyepacs", "rfmid"]:
             archive_fname = f'{idx_str[:5]}/img{idx_str}.jpg'
@@ -710,7 +774,7 @@ def convert_dataset(
                 img = np.fliplr(img)
                 img = np.flipud(img)
         # Save the image as an uncompressed PNG.
-        if dataset_name in ["adni", "ukb", "nacc"]:
+        if dataset_name in ["adni", "ukb", "nacc", "oasis3"]:
             save_path = os.path.join(archive_root_dir, archive_fname)
             os.makedirs(os.path.dirname(save_path), exist_ok=True)
             img = img.reshape(*img.shape, 1)

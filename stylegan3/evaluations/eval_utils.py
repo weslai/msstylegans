@@ -11,6 +11,8 @@ import json
 import dnnlib
 from torchmetrics.image.fid import FrechetInceptionDistance
 from torchmetrics.image.kid import KernelInceptionDistance
+from torchmetrics.image.inception import InceptionScore
+from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 from torchmetrics import MeanSquaredError, MeanAbsoluteError
 from torchmetrics import Accuracy, Precision, Recall, F1Score
 from torchmetrics.classification import BinarySpecificity, BinaryRecall
@@ -182,6 +184,46 @@ def calc_kid_score(
     kid_score = kid.compute()
     return kid_score
 
+def cal_inception_score(
+    img_dist,
+    batch_size=64
+):
+    """
+    Calculate inception score for generated image distributions.
+    Args:
+        img_dist (torch.Tensor): generated image distribution
+        batch_size (int): batch size
+    """
+    _ = torch.manual_seed(64)
+    inception = InceptionScore().to(device=img_dist.device)
+    for i in range(0, len(img_dist), batch_size):
+        inception.update(img_dist[i:min(i+batch_size, len(img_dist))])
+    inception_score = inception.compute()
+    return inception_score
+
+def cal_lpips_score(
+    img_dist1,
+    img_dist2,
+    batch_size=64
+):
+    """
+    Calculate LPIPS score for two image distributions.
+    This must be a pair of images.
+    Args:
+        img_dist1 (torch.tensor): generated image distribution [0, 1]
+        img_dist2 (torch.tensor): ground truth image distribution [0, 1]
+        batch_size (int, optional): _description_. Defaults to 64.
+    """
+    _ = torch.manual_seed(64)
+    assert img_dist1.shape == img_dist2.shape
+    scores = []
+    lpips = LearnedPerceptualImagePatchSimilarity(net_type="squeeze", normalize=True).to(device=img_dist1.device)
+    for i in range(0, len(img_dist1), batch_size):
+        img1 = img_dist1[i:min(i+batch_size, len(img_dist1))]
+        img2 = img_dist2[i:min(i+batch_size, len(img_dist2))]
+        score = lpips(img1, img2)
+        scores.append(score)
+    return (torch.mean(torch.cat(scores)).cpu().detach().numpy(), torch.std(torch.cat(scores)).cpu().detach().numpy())
 
 def calc_mean_scores(
     genimg_dist,

@@ -180,7 +180,7 @@ for metric in METRICS:
             metric = "Pearson's Correlation"
         if ms_high_df is not None:
             # df.columns = pd.MultiIndex.from_product([["Source 1", "Multisource half", "Multisource high", "Source 2"], [metric]])
-            df.columns = ["Source 1", "half \n MS", "high \n MS", "Source 2"]
+            df.columns = ["Source 1", "half \n MS", "full \n MS", "Source 2"]
         else:
             df.columns = pd.MultiIndex.from_product([["Source 1", "Multisource", "Source 2"], [metric]])
     elif SETTING in ["twomultisource_mri", "twomultisource_retinal"]:

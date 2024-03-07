@@ -6,7 +6,6 @@ import numpy as np
 import torch
 import click
 from typing import List, Tuple, Union
-import torch.nn.functional as F
 sys.path.append("/dhc/home/wei-cheng.lai/projects/msstylegans")
 from utils import load_generator, generate_images
 from training.dataset_real_ms import UKBiobankMRIDataset2D, UKBiobankRetinalDataset, AdniMRIDataset2D, KaggleEyepacsDataset
@@ -78,7 +77,7 @@ def get_covs(dataset):
     if dataset == "retinal":
         COVS = {"c1": "age", "c2": "diastolic blood pressure", "c3": "spherical power", "c4": "diabetic retinopathy"}
     elif dataset == "mri":
-        COVS = {"c1_1": "age", "c1_2": "age", "c2": "ventricle", "c3": "grey matter", "c4": "clinical dementia rating"}
+        COVS = {"c1_1": "age", "c1_2": "age", "c2": "ventricle", "c3": "grey matter", "c4": "left hippocampus", "c5": "right hippocampus"}
     return COVS
 #----------------------------------------------------------------------------
 
@@ -139,7 +138,7 @@ def run_visualizer_two_covs(
         variables.append("c1_2")
         variables = variables[::-1]
     if dataset == "mri":
-        all_vars = ["c1_1", "c1_2", "c2", "c3", "c4"]
+        all_vars = ["c1_1", "c1_2", "c2", "c3", "c4", "c5"]
         for variable in variables:
             assert variable in all_vars
             if variable in all_vars:
@@ -193,9 +192,9 @@ def run_visualizer_two_covs(
                                     xflip=False)
     ## norm labels
     labels1 = ds1._load_raw_labels() ## (c1, c2, c3)
-    labels1_min, labels1_max = np.quantile(labels1, 0.1, axis=0), np.quantile(labels1, 0.9, axis=0)
+    labels1_min, labels1_max = np.quantile(labels1, 0.01, axis=0), np.quantile(labels1, 0.98, axis=0)
     labels2 = ds2._load_raw_labels() ## (c1, c4 (cdr))
-    labels2_min, labels2_max = np.quantile(labels2, 0.1, axis=0), np.quantile(labels2, 0.9, axis=0)
+    labels2_min, labels2_max = np.quantile(labels2, 0.01, axis=0), np.quantile(labels2, 0.98, axis=0)
     
     c_vars = {}
     c_vars_orig = {}
@@ -227,8 +226,12 @@ def run_visualizer_two_covs(
                 v = np.array([1, 2, 3, 4]).reshape(-1, 1)
                 v_orig = v
             elif dataset == "mri":
-                v = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
-                v_orig = np.array([0, 0.5, 1]).reshape(-1, 1)
+                v = np.linspace(labels2_min[1], labels2_max[1], num=num_labels).reshape(-1, 1)
+                v_orig = v * ds2.model["left_hippo_std"] + ds2.model["left_hippo_mu"]
+        elif variable == "c5":
+            if dataset == "mri":
+                v = np.linspace(labels2_min[2], labels2_max[2], num=num_labels).reshape(-1, 1)
+                v_orig = v * ds2.model["right_hippo_std"] + ds2.model["right_hippo_mu"]
         c_vars[variable] = v
         c_vars_orig[variable] = v_orig
     c_fix = {}
@@ -261,18 +264,21 @@ def run_visualizer_two_covs(
                 c_mean = np.random.choice([1, 2, 3, 4])
                 c_mean_orig = c_mean
             elif dataset == "mri":
-                c_mean = np.random.choice([0, 1, 2])
-                c_mean = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])[c_mean].reshape(1, -1)
-                c_mean_orig = np.array([0, 0.5, 1])[c_mean]
+                c_mean = np.mean([labels2_min[1], labels2_max[1]])
+                c_mean_orig = c_mean * ds2.model["left_hippo_std"] + ds2.model["left_hippo_mu"]
+        elif remain_var == "c5": ## right hippocampus
+            if dataset == "mri":
+                c_mean = np.mean([labels2_min[2], labels2_max[2]])
+                c_mean_orig = c_mean * ds2.model["right_hippo_std"] + ds2.model["right_hippo_mu"]
         c_fix[remain_var] = c_mean
         c_fix_orig[remain_var] = c_mean_orig
     
     nrows = num_labels
-    if "c4" in variables:
-        if dataset == "mri":
-            ncols = 3
-        elif dataset == "retinal":
+    if dataset == "retinal":
+        if "c4" in variables:
             ncols = 4
+        else:
+            ncols = num_labels
     else:
         ncols = num_labels
     # Generate images.
@@ -306,7 +312,7 @@ def run_visualizer_two_covs(
                         number = int(variable.split("c")[-1])
                         if number not in c_order.keys():
                             c_order[number] = np.array([c_fix[variable]])
-                c_order[5] = np.array([0]) if source == "0" else np.array([1])
+                c_order[6] = np.array([0]) if source == "0" else np.array([1])
                 cond_l = np.concatenate([c_order[key].reshape(1, -1) for key in sorted(c_order.keys())], axis=1)
                 l = torch.tensor(cond_l).reshape(1, -1).to(device)
                 img = generate_images(Gen, z, l, truncation_psi, noise_mode, translate, rotate)

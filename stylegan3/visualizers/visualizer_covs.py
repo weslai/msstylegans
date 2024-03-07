@@ -162,7 +162,7 @@ def run_visualizer_two_covs(
     labels1 = ds1._load_raw_labels() ## (c1, c2, c3) ## source1
     labels1_min, labels1_max = np.quantile(labels1, 0.30, axis=0), np.quantile(labels1, 0.85, axis=0)
     labels2 = ds2._load_raw_labels() ## (c1, c2, c3) ## source2
-    labels2_min, labels2_max = np.quantile(labels2, 0.30, axis=0), np.quantile(labels2, 0.85, axis=0)
+    labels2_min, labels2_max = np.quantile(labels2, 0.20, axis=0), np.quantile(labels2, 0.9, axis=0)
     c1_min, c1_max = min(labels1_min[0], labels2_min[0]), max(labels1_max[0], labels2_max[0]) ## c1 fixed
     c2_min, c2_max = min(labels1_min[1], labels2_min[1]), max(labels1_max[1], labels2_max[1]) ## c2
     c3_min, c3_max = min(labels1_min[2], labels2_min[2]), max(labels1_max[2], labels2_max[2]) ## c3
