@@ -1,0 +1,8 @@
+msbackup/
+
+stylegan3/*/__pycache__/
+stylegan3/__pycache__/
+runshells/*.sh
+__pycache__/
+eval_regr/__pycache__/
+lightning_logs/
