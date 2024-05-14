@@ -13,6 +13,8 @@ from torchmetrics.image.fid import FrechetInceptionDistance
 from torchmetrics.image.kid import KernelInceptionDistance
 from torchmetrics.image.inception import InceptionScore
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
+from torchmetrics.image import PeakSignalNoiseRatio
+from torchmetrics.image import StructuralSimilarityIndexMeasure
 from torchmetrics import MeanSquaredError, MeanAbsoluteError
 from torchmetrics import Accuracy, Precision, Recall, F1Score
 from torchmetrics.classification import BinarySpecificity, BinaryRecall
@@ -184,7 +186,7 @@ def calc_kid_score(
     kid_score = kid.compute()
     return kid_score
 
-def cal_inception_score(
+def calc_inception_score(
     img_dist,
     batch_size=64
 ):
@@ -201,7 +203,7 @@ def cal_inception_score(
     inception_score = inception.compute()
     return inception_score
 
-def cal_lpips_score(
+def calc_lpips_score(
     img_dist1,
     img_dist2,
     batch_size=64
@@ -212,7 +214,7 @@ def cal_lpips_score(
     Args:
         img_dist1 (torch.tensor): generated image distribution [0, 1]
         img_dist2 (torch.tensor): ground truth image distribution [0, 1]
-        batch_size (int, optional): _description_. Defaults to 64.
+        batch_size (int, optional): Defaults to 64.
     """
     _ = torch.manual_seed(64)
     assert img_dist1.shape == img_dist2.shape
@@ -221,9 +223,57 @@ def cal_lpips_score(
     for i in range(0, len(img_dist1), batch_size):
         img1 = img_dist1[i:min(i+batch_size, len(img_dist1))]
         img2 = img_dist2[i:min(i+batch_size, len(img_dist2))]
-        score = lpips(img1, img2)
+        score = lpips(img1, img2).cpu().detach().numpy()
         scores.append(score)
-    return (torch.mean(torch.cat(scores)).cpu().detach().numpy(), torch.std(torch.cat(scores)).cpu().detach().numpy())
+    return (np.mean(scores), np.std(scores))
+
+def calc_psnr_score(
+    img_dist1,
+    img_dist2,
+    batch_size=64
+):
+    """
+    Calculate PSNR for two image distributions.
+    This must be a pair of images.
+    Args:
+        img_dist1 (torch.tensor): generated image distribution (## predictions)
+        img_dist2 (torch.tensor): ground truth image distribution (## targets)
+        batch_size (int, optional): Defaults to 64.
+    """
+    _ = torch.manual_seed(64)
+    assert img_dist1.shape == img_dist2.shape
+    scores = []
+    psnr = PeakSignalNoiseRatio().to(device=img_dist1.device)
+    for i in range(0, len(img_dist1), batch_size):
+        img1 = img_dist1[i:min(i+batch_size, len(img_dist1))]
+        img2 = img_dist2[i:min(i+batch_size, len(img_dist2))]
+        score = psnr(img1, img2).cpu().detach().numpy()
+        scores.append(score)
+    return (np.mean(scores), np.std(scores))
+
+def calc_ssim_score(
+    img_dist1,
+    img_dist2,
+    batch_size=64
+):
+    """
+    Calculate SSIM for two image distributions.
+    This must be a pair of images.
+    Args:
+        img_dist1 (torch.tensor): generated image distribution (## predictions)
+        img_dist2 (torch.tensor): ground truth image distribution (## targets)
+        batch_size (int, optional): Defaults to 64.
+    """
+    _ = torch.manual_seed(64)
+    assert img_dist1.shape == img_dist2.shape
+    scores = []
+    ssim = StructuralSimilarityIndexMeasure(data_range=1.0).to(device=img_dist1.device)
+    for i in range(0, len(img_dist1), batch_size):
+        img1 = img_dist1[i:min(i+batch_size, len(img_dist1))]
+        img2 = img_dist2[i:min(i+batch_size, len(img_dist2))]
+        score = ssim(img1, img2).cpu().detach().numpy()
+        scores.append(score)
+    return (np.mean(scores), np.std(scores))
 
 def calc_mean_scores(
     genimg_dist,

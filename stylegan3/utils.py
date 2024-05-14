@@ -15,7 +15,7 @@ import legacy
 ### --- Own ---
 ### -----------
 from evaluations.eval_utils import get_k_lowest_checkpoints
-from eval_regr.model import RegressionResnet, ClassificationResnet, MNISTClassificationResnet, MNISTRegressionResnet
+# from eval_regr.model import RegressionResnet, ClassificationResnet, MNISTClassificationResnet, MNISTRegressionResnet
 
 ## pairplot
 def plot_pairplots(df, kind: str = "hist", diag_kind: str = "hist", save_path: str = None):
