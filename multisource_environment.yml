@@ -246,4 +246,3 @@ dependencies:
       - traitlets==5.4.0
       - typing-extensions==4.7.1
       - wandb==0.13.5
-prefix: /dhc/home/wei-cheng.lai/conda3/envs/stylegan3_test
