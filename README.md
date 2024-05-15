@@ -3,7 +3,9 @@
 Multi-Source StyleGAN is a method to generate images with different available covariates from multiple heterogeneous data sources. This repository provides code to train your own Multi-Source StyleGAN.
 We work on the official [StyleGAN3 model](https://github.com/NVlabs/stylegan3) and this work is accepted by MIDL 2024.
 
-![Teaser image](./docs/mri_age_59.0.pdf)
+
+<a href="./docs/mri_age_59.0.pdf" class="image fit"><img src="images/marr_pic.jpg" alt=""></a>
+
 
 **Heterogeneous Medical Data Integration with Multi-Source StyleGAN**<br>
 Wei-Cheng Lai, Matthias Kirchler, Hadya Yassin, Jana Fehr, Alexander Rakowski, Hampus Olsson, Ludger Starke, Jason M. Millward, Sonia Waiczies, Christoph Lippert<br>
