@@ -1,4 +1,4 @@
-import os, sys
+import os
 import json
 import numpy as np
 import pandas as pd
@@ -233,15 +233,10 @@ def sample_from_model(
         normal = Normal(loc=torch.zeros_like(torch.tensor(model["thickness_mu"])),
                         scale=torch.tensor(model["thickness_std"]))
         temp_thickness = thickness + normal.sample((thickness.shape[0], 1))
-    # temp_thickness = torch.sigmoid(thickness)
     if dataset_name == "mnist-thickness-intensity":
-        # normal = Normal(loc=torch.zeros_like(torch.tensor(model["intensity_mu"])),
-        #                 scale=torch.tensor(model["intensity_std"]))
         intensity = temp_thickness @ model["intensity_weights"].T + model["intensity_bias"]
         return thickness, intensity.reshape(-1, 1), None, classes
     elif dataset_name == "mnist-thickness-slant":
-        # normal = Normal(loc=torch.zeros_like(torch.tensor(model["slant_mu"])),
-        #                 scale=torch.tensor(model["slant_std"]))
         slant = temp_thickness @ model["slant_weights"].T + model["slant_bias"]
         return thickness, None, slant.reshape(-1, 1), classes
     elif dataset_name == "mnist-thickness-intensity-slant":
@@ -423,29 +418,3 @@ def normalize_samples(
             classes = torch.nn.functional.one_hot(torch.tensor(classes), num_classes=10)
         samples = torch.cat([samples, classes], 1)
     return samples
-
-# def sample_new(
-#     dataset: str, 
-#     model,
-#     num_samples: int = 100,
-#     include_numbers: bool = False
-# ):
-#     if dataset == "mnist-thickness-intensity":
-#         thickness = 0.5 + model["gamma"].sample((num_samples, 1))
-#         normal_dist = model["normal"].sample((num_samples, 1))
-#         intensity = 191 * torch.sigmoid(normal_dist + 2 * thickness - 5) + 64
-#         intensity = intensity.reshape(-1, 1)
-#         slant = None
-#     elif dataset == "mnist-thickness-slant":
-#         thickness = model["gamma"].sample((num_samples, 1))
-#         normal_dist = model["normal_slant"].sample((num_samples, 1))
-#         slant = normal_dist + (20 * thickness - 50) * 5
-#         slant = slant.reshape(-1, 1)
-#         intensity = None
-#     classes = torch.randint(0, 10, size=(num_samples,)) if include_numbers else None
-#     classes = torch.nn.functional.one_hot(classes, num_classes=10) if include_numbers else None
-#     return thickness.reshape(-1, 1), intensity, slant, classes
-
-
-
-        

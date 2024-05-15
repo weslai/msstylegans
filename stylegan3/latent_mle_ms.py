@@ -53,19 +53,14 @@ def set_dataset(name: str, which_source=None):
         VARS = ["age"] + VOLS
         ## ------------------------------------------------------
     elif name == "adni":
-        # VOLS = ["left_lateral_ventricle", "right_lateral_ventricle",
-        #         "left_cerebral_cortex", "right_cerebral_cortex"
-        # ]
         VOLS = ["left_lateral_ventricle", "right_lateral_ventricle",
         "left_cerebral_cortex", "right_cerebral_cortex",
         "left_hippocampus", "right_hippocampus"
         ]
         VARS = ["Age", "Sex", "CDGLOBAL"] + VOLS
-        # VARS = ["Age", "Sex", "mmse"] + VOLS ## first ignore mmse for now
         ## ------------------------------------------------------
     elif name == "retinal":
         if which_source == "source1":
-            # VOLS = ["diastolic_bp"]
             VOLS = ["cataract"]
         elif which_source == "source2":
             VOLS = ["spherical_power_left"]
