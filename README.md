@@ -16,7 +16,7 @@ To address these two issues, we propose Multi-Source StyleGAN (MSSG). MSSG learn
 We validate our method on semi-synthetic data of hand-written digit images with varying morphological features and in controlled multi-source simulations on retinal fundus images and brain magnetic resonance images. Finally, we apply MSSG in a real-world setting of brain MRI from different sources. Our proposed algorithm offers a promising direction for unbiased data generation from disparate sources.*
 
 
-### Installation
+## Installation
 1. Clone the official StyleGAN3 repository: 
 `git clone https://github.com/NVlabs/stylegan3.git`
 
@@ -25,7 +25,7 @@ We validate our method on semi-synthetic data of hand-written digit images with 
 
 3. Replace the official codes with our codes, which have the same file names. The other files should stay unchanged. The files that should be replaced are `dataset_tool.py`, `train.py` in the directory `stylegan3`, `dataset.py`, `loss.py`, `networks_stylegan2.py`, `networks_stylegan3.py` and `training_loop.py` in the directory `stylegan3/training`.
 
-### Structure of the repository
+## Structure of the repository
 * `eval_regr` contains codes to train prediction models with ResNet backbones for the evaluation of the controlability.
 * `plots` contains codes to generate the plots used for the manuscript.
 * `stylegan3` is the main folder to train MSSG and generate synthetic images. Furthermore, it contains also the evaluation metrics.
